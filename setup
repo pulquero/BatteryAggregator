@@ -1,0 +1,79 @@
+#!/bin/bash
+
+source "/data/SetupHelper/CommonResources"
+
+pythonLibs="$scriptDir/ext"
+
+packageLogFile="/var/log/BatteryAggregator/current"
+
+extInstall ()
+{
+	url=$1
+	project=$2
+	branch=$3
+	repoPath=$4
+	if [ -z "$branch" ]; then
+		branch="master"
+	fi
+	if [ -z "$repoPath" ]; then
+		repoPath="$project"
+	fi
+	logMessage "++ Install Python library $project ($branch) from $url into $pythonLibs"
+	wget "$url/archive/refs/heads/$branch.zip" -O "/tmp/$project.zip"
+	mkdir -p "/tmp/$project"
+	unzip -oq "/tmp/$project.zip" -d "/tmp/$project"
+	if [ "$repoPath" == "/" ]; then
+		# don't quote - need shell expansion!
+		cp -R /tmp/$project/$project-$branch/* "$pythonLibs"
+	else
+		rm -fr "$pythonLibs/$project"
+		mv "/tmp/$project/$project-$branch/$repoPath" "$pythonLibs/$repoPath"
+	fi
+	rm -fr "/tmp/$project" "/tmp/$project.zip"
+}
+
+extUninstall ()
+{
+	logMessage "++ Removing Python libray $1"
+	rm -fr "$pythonLibs/$1"
+}
+
+prompt ()
+{
+	/bin/echo -n "$*"
+	read response
+}
+
+
+#### running manually and OK to proceed - prompt for input
+if [ $scriptAction == 'NONE' ] ; then
+	# display initial message
+	echo
+	echo "Battery Aggregator"
+	
+	standardActionPrompt
+fi
+
+
+#### install code goes here
+if [ $scriptAction == 'INSTALL' ] ; then
+
+	logMessage "++ Installing Battery Aggregator service"
+
+	mkdir -p "$pythonLibs"
+	extInstall "https://github.com/victronenergy/velib_python" "velib_python" "master" "/"
+
+	installService $packageName
+fi
+
+
+#### uninstalling - check scriptAction again
+# if an install step failed package needs to be removed
+if [ $scriptAction == 'UNINSTALL' ] ; then
+	logMessage "++ Uninstalling Battery Aggregator service"
+
+	removeService $packageName
+fi
+
+
+endScript

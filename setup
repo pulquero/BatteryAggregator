@@ -61,7 +61,7 @@ if [ $scriptAction == 'INSTALL' ] ; then
 	logMessage "++ Installing Battery Aggregator service"
 
 	mkdir -p "$pythonLibs"
-	extInstall "https://github.com/victronenergy/velib_python" "velib_python" "master" "/"
+	extInstall "https://github.com/pulquero/velib_python" "velib_python" "master" "/"
 
 	installService $packageName
 fi

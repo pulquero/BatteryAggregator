@@ -12,6 +12,7 @@ import logging
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 
+SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
 PRODUCT_ID = 0
 PRODUCT_NAME = "Battery Aggregator"
@@ -44,6 +45,7 @@ def dbusConnection():
 VOLTAGE_TEXT = lambda path,value: "{:.2f}V".format(value)
 CURRENT_TEXT = lambda path,value: "{:.3f}A".format(value)
 POWER_TEXT = lambda path,value: "{:.2f}W".format(value)
+AH_TEXT = lambda path,value: "{:.3f}Ah".format(value)
 
 
 class Statistics:
@@ -60,18 +62,32 @@ class Statistics:
         return self.sum/self.count if self.count > 0 else 0
 
 
+def _safe_min(newValue, currentValue):
+    return min(newValue, currentValue) if currentValue else newValue
+
+
+def _safe_max(newValue, currentValue):
+    return max(newValue, currentValue) if currentValue else newValue
+
+
 class BatteryService:
     def __init__(self, conn):
-        self.service = VeDbusService('com.victronenergy.battery.aggregator', conn)
+        self.service = VeDbusService(SERVICE_NAME, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      PRODUCT_ID, PRODUCT_NAME, FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.service.add_path("/Dc/0/Voltage", 0, gettextcallback=VOLTAGE_TEXT)
         self.service.add_path("/Dc/0/Current", 0, gettextcallback=CURRENT_TEXT)
         self.service.add_path("/Dc/0/Power", 0, gettextcallback=POWER_TEXT)
-        self.service.add_path("/Dc/0/Temperature", 0)
-        self.service.add_path("/Soc", 0)
-        self.service.add_path("/ConsumedAmphours", 0)
+        self.service.add_path("/Dc/0/Temperature", None)
+        self.service.add_path("/Soc", None)
+        self.service.add_path("/ConsumedAmphours", 0, gettextcallback=AH_TEXT)
+        self.service.add_path("/Capacity", None, gettextcallback=AH_TEXT)
+        self.service.add_path("/InstalledCapacity", None, gettextcallback=AH_TEXT)
         self.service.add_path("/System/NrOfBatteries", 0)
+        self.service.add_path("/Info/BatteryLowVoltage", None)
+        self.service.add_path("/Info/MaxChargeCurrent", None)
+        self.service.add_path("/Info/MaxChargeVoltage", None)
+        self.service.add_path("/Info/MaxDischargeCurrent", None)
         self.alarms = [
             "/Alarms/CellImbalance",
             "/Alarms/LowSoc",
@@ -91,16 +107,25 @@ class BatteryService:
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
         options = None  # currently not used afaik
-        self.monitor = DbusMonitor({
-            'com.victronenergy.battery': {
-                '/Dc/0/Current': options,
-                '/Dc/0/Voltage': options,
-                '/Dc/0/Power': options,
-                '/Dc/0/Temperature': options,
-                '/Soc': options,
-                '/ConsumedAmphours': options,
-            }
-        })
+        self.monitor = DbusMonitor(
+            {
+                'com.victronenergy.battery': {
+                    '/Dc/0/Current': options,
+                    '/Dc/0/Voltage': options,
+                    '/Dc/0/Power': options,
+                    '/Dc/0/Temperature': options,
+                    '/Soc': options,
+                    '/ConsumedAmphours': options,
+                    '/Capacity': options,
+                    '/InstalledCapacity': options,
+                    '/Info/BatteryLowVoltage': options,
+                    '/Info/MaxChargeCurrent': options,
+                    '/Info/MaxChargeVoltage': options,
+                    '/Info/MaxDischargeCurrent': options,
+                }
+            },
+            excludedServiceNames=[SERVICE_NAME]
+        )
 
     def _get_value(self, serviceName, path, defaultValue=None):
         return self.monitor.get_value(serviceName, path, defaultValue)
@@ -112,33 +137,77 @@ class BatteryService:
         totalConsumedAh = 0
         temperatureStats = Statistics()
         socStats = Statistics()
+        totalCapacity = 0
+        totalInstalledCapacity = 0
         batteryCount = 0
         aggregated_alarms = {}
+        maxLowVoltage = None
+        minMaxChargeCurrent = None
+        minMaxChargeVoltage = None
+        minMaxDischargeCurrent = None
 
-        for serviceName in self.monitor.get_service_list('com.victronenergy.battery'):
+        serviceNames = self.monitor.get_service_list('com.victronenergy.battery')
+
+        # minimize delay between time sensitive values
+        for serviceName in serviceNames:
             current = self._get_value(serviceName, "/Dc/0/Current", 0)
             voltage = self._get_value(serviceName, "/Dc/0/Voltage", 0)
             power = self._get_value(serviceName, "/Dc/0/Power", voltage * current)
-            temperature = self._get_value(serviceName, "/Dc/0/Temperature")
-            soc = self._get_value(serviceName, "/Soc")
-            consumedAh = self._get_value(serviceName, "/ConsumedAmphours", 0)
             totalCurrent += current
             voltageSum += voltage
             totalPower += power
-            totalConsumedAh += consumedAh
-            temperatureStats.add(temperature)
-            socStats.add(soc)
             batteryCount += 1
-
-            for alarm in self.alarms:
-                aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
 
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
         self._local_values["/Dc/0/Current"] = totalCurrent
         self._local_values["/Dc/0/Power"] = totalPower
-        self._local_values["/Dc/0/Temperature"] = temperatureStats.mean()
-        self._local_values["/Soc"] = socStats.mean()
+
+        for serviceName in serviceNames:
+            temperature = self._get_value(serviceName, "/Dc/0/Temperature")
+            soc = self._get_value(serviceName, "/Soc")
+            consumedAh = self._get_value(serviceName, "/ConsumedAmphours", 0)
+            capacity = self._get_value(serviceName, "/Capacity" ,0)
+            installedCapacity = self._get_value(serviceName, "/InstalledCapacity" ,0)
+            lowVoltage = self._get_value(serviceName, "/Info/BatteryLowVoltage")
+            maxChargeCurrent = self._get_value(serviceName, "/Info/MaxChargeCurrent")
+            maxChargeVoltage = self._get_value(serviceName, "/Info/MaxChargeVoltage")
+            maxDischargeCurrent = self._get_value(serviceName, "/Info/MaxDischargeCurrent")
+            totalConsumedAh += consumedAh
+            totalCapacity += capacity
+            totalInstalledCapacity += installedCapacity
+            temperatureStats.add(temperature)
+            socStats.add(soc)
+            
+            if lowVoltage:
+                maxLowVoltage = _safe_max(maxLowVoltage, lowVoltage)
+            if maxChargeCurrent:
+                minMaxChargeCurrent = _safe_min(minMaxChargeCurrent, maxChargeCurrent)
+            if maxChargeVoltage:
+                minMaxChargeVoltage = _safe_min(minMaxChargeVoltage, maxChargeVoltage)
+            if maxDischargeCurrent:
+                minMaxDischargeCurrent = _safe_min(minMaxDischargeCurrent, maxDischargeCurrent)
+
+            for alarm in self.alarms:
+                aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
+
+        if temperatureStats.count > 0:
+            self._local_values["/Dc/0/Temperature"] = temperatureStats.mean()
+        if socStats.count > 0:
+            self._local_values["/Soc"] = socStats.mean()
+        self._local_values["/ConsumedAmphours"] = totalConsumedAh
+
+        self._local_values["/Capacity"] = totalCapacity
+        self._local_values["/InstalledCapacity"] = totalInstalledCapacity
+
+        if maxLowVoltage:
+            self._local_values["/Info/BatteryLowVoltage"] = maxLowVoltage
+        if minMaxChargeCurrent:
+            self._local_values["/Info/MaxChargeCurrent"] = minMaxChargeCurrent
+        if minMaxChargeVoltage:
+            self._local_values["/Info/MaxChargeVoltage"] = minMaxChargeVoltage
+        if minMaxDischargeCurrent:
+            self._local_values["/Info/MaxDischargeCurrent"] = minMaxDischargeCurrent
 
         for alarm in self.alarms:
             self._local_values[alarm] = aggregated_alarms[alarm]

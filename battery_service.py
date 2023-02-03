@@ -178,15 +178,15 @@ class BatteryService:
             totalInstalledCapacity += installedCapacity
             temperatureStats.add(temperature)
             socStats.add(soc)
-            
-            if lowVoltage:
-                maxLowVoltage = _safe_max(maxLowVoltage, lowVoltage)
-            if maxChargeCurrent:
-                minMaxChargeCurrent = _safe_min(minMaxChargeCurrent, maxChargeCurrent)
-            if maxChargeVoltage:
-                minMaxChargeVoltage = _safe_min(minMaxChargeVoltage, maxChargeVoltage)
-            if maxDischargeCurrent:
-                minMaxDischargeCurrent = _safe_min(minMaxDischargeCurrent, maxDischargeCurrent)
+
+            if lowVoltage is not None:
+                maxLowVoltage = _safe_max(lowVoltage, maxLowVoltage)
+            if maxChargeCurrent is not None:
+                minMaxChargeCurrent = _safe_min(maxChargeCurrent, minMaxChargeCurrent)
+            if maxChargeVoltage is not None:
+                minMaxChargeVoltage = _safe_min(maxChargeVoltage, minMaxChargeVoltage)
+            if maxDischargeCurrent is not None:
+                minMaxDischargeCurrent = _safe_min(maxDischargeCurrent, minMaxDischargeCurrent)
 
             for alarm in self.alarms:
                 aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
@@ -200,13 +200,13 @@ class BatteryService:
         self._local_values["/Capacity"] = totalCapacity
         self._local_values["/InstalledCapacity"] = totalInstalledCapacity
 
-        if maxLowVoltage:
+        if maxLowVoltage is not None:
             self._local_values["/Info/BatteryLowVoltage"] = maxLowVoltage
-        if minMaxChargeCurrent:
+        if minMaxChargeCurrent is not None:
             self._local_values["/Info/MaxChargeCurrent"] = minMaxChargeCurrent
-        if minMaxChargeVoltage:
+        if minMaxChargeVoltage is not None:
             self._local_values["/Info/MaxChargeVoltage"] = minMaxChargeVoltage
-        if minMaxDischargeCurrent:
+        if minMaxDischargeCurrent is not None:
             self._local_values["/Info/MaxDischargeCurrent"] = minMaxDischargeCurrent
 
         for alarm in self.alarms:

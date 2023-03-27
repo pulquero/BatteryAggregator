@@ -209,8 +209,10 @@ class BatteryService:
         if minMaxDischargeCurrent is not None:
             self._local_values["/Info/MaxDischargeCurrent"] = minMaxDischargeCurrent
 
-        for alarm in self.alarms:
-            self._local_values[alarm] = aggregated_alarms[alarm]
+        if aggregated_alarms:
+            for alarm in self.alarms:
+                self._local_values[alarm] = aggregated_alarms[alarm]
+
         return True
 
     def publish(self):

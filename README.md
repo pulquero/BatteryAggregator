@@ -1,7 +1,7 @@
 
 # About
 
-A battery monitor DBus service that aggregates the data for multiple batteries.
+A battery monitor DBus service that aggregates the data for multiple batteries (currently, only parallel supported).
 
 
 # Install

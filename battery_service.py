@@ -70,6 +70,10 @@ def _safe_max(newValue, currentValue):
     return max(newValue, currentValue) if currentValue else newValue
 
 
+def _safe_sum(newValue, currentValue):
+    return newValue + currentValue if currentValue else newValue
+
+
 class BatteryService:
     def __init__(self, conn):
         self.service = VeDbusService(SERVICE_NAME, conn)
@@ -142,9 +146,9 @@ class BatteryService:
         batteryCount = 0
         aggregated_alarms = {}
         maxLowVoltage = None
-        minMaxChargeCurrent = None
+        totalMaxChargeCurrent = None
         minMaxChargeVoltage = None
-        minMaxDischargeCurrent = None
+        totalMaxDischargeCurrent = None
 
         serviceNames = self.monitor.get_service_list('com.victronenergy.battery')
 
@@ -182,11 +186,11 @@ class BatteryService:
             if lowVoltage is not None:
                 maxLowVoltage = _safe_max(lowVoltage, maxLowVoltage)
             if maxChargeCurrent is not None:
-                minMaxChargeCurrent = _safe_min(maxChargeCurrent, minMaxChargeCurrent)
+                totalMaxChargeCurrent = _safe_sum(maxChargeCurrent, totalMaxChargeCurrent)
             if maxChargeVoltage is not None:
                 minMaxChargeVoltage = _safe_min(maxChargeVoltage, minMaxChargeVoltage)
             if maxDischargeCurrent is not None:
-                minMaxDischargeCurrent = _safe_min(maxDischargeCurrent, minMaxDischargeCurrent)
+                totalMaxDischargeCurrent = _safe_sum(maxDischargeCurrent, totalMaxDischargeCurrent)
 
             for alarm in self.alarms:
                 aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
@@ -202,12 +206,12 @@ class BatteryService:
 
         if maxLowVoltage is not None:
             self._local_values["/Info/BatteryLowVoltage"] = maxLowVoltage
-        if minMaxChargeCurrent is not None:
-            self._local_values["/Info/MaxChargeCurrent"] = minMaxChargeCurrent
+        if totalMaxChargeCurrent is not None:
+            self._local_values["/Info/MaxChargeCurrent"] = totalMaxChargeCurrent
         if minMaxChargeVoltage is not None:
             self._local_values["/Info/MaxChargeVoltage"] = minMaxChargeVoltage
-        if minMaxDischargeCurrent is not None:
-            self._local_values["/Info/MaxDischargeCurrent"] = minMaxDischargeCurrent
+        if totalMaxDischargeCurrent is not None:
+            self._local_values["/Info/MaxDischargeCurrent"] = totalMaxDischargeCurrent
 
         if aggregated_alarms:
             for alarm in self.alarms:

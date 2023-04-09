@@ -11,3 +11,13 @@ to be available by default, else manually add it.
 
 Select the Battery Aggregator as the `Battery monitor` under `System setup`.
 
+
+# Configuration
+
+Optionally create the file `/data/setupOptions/BatteryAggregator/config.json`.
+
+To exclude the battery service `com.victronenergy.battery.shunt1`, add:
+
+	{
+		"excludedServices": ["com.victronenergy.battery.shunt1"]
+	}

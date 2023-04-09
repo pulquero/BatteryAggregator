@@ -11,6 +11,8 @@ from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
+from pathlib import Path
+import json
 
 SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
@@ -75,7 +77,7 @@ def _safe_sum(newValue, currentValue):
 
 
 class BatteryService:
-    def __init__(self, conn):
+    def __init__(self, conn, config):
         self.service = VeDbusService(SERVICE_NAME, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      PRODUCT_ID, PRODUCT_NAME, FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
@@ -128,7 +130,7 @@ class BatteryService:
                     '/Info/MaxDischargeCurrent': options,
                 }
             },
-            excludedServiceNames=[SERVICE_NAME]
+            excludedServiceNames=[SERVICE_NAME] + config.get("excludedServices", [])
         )
 
     def _get_value(self, serviceName, path, defaultValue=None):
@@ -231,7 +233,14 @@ class BatteryService:
 
 def main():
     DBusGMainLoop(set_as_default=True)
-    battery = BatteryService(dbusConnection())
+    setupOptions = Path("/data/setupOptions/BatteryAggregator")
+    configFile = setupOptions/"config.json"
+    try:
+        with configFile.open() as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = {}
+    battery = BatteryService(dbusConnection(), config)
     GLib.timeout_add(250, battery.publish)
     logger.info("Registered Battery Aggregator")
     mainloop = GLib.MainLoop()

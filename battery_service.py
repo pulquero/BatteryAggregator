@@ -247,11 +247,14 @@ def main():
     DBusGMainLoop(set_as_default=True)
     setupOptions = Path("/data/setupOptions/BatteryAggregator")
     configFile = setupOptions/"config.json"
+    config = {}
     try:
         with configFile.open() as f:
             config = json.load(f)
     except FileNotFoundError:
-        config = {}
+        pass
+    except json.JSONDecodeError:
+        logger.warning("Ignoring invalid JSON file")
     battery = BatteryService(dbusConnection(), config)
     GLib.timeout_add(250, battery.publish)
     logger.info("Registered Battery Aggregator")

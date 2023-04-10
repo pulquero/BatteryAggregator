@@ -72,6 +72,7 @@ class Unit:
 VOLTAGE = Unit(VOLTAGE_TEXT)
 CURRENT = Unit(CURRENT_TEXT)
 TEMPERATURE = Unit()
+AMP_HOURS = Unit(AH_TEXT)
 
 
 class Aggregator:
@@ -104,6 +105,7 @@ class Statistics:
 class BatteryService(SettableService):
     def __init__(self, conn, config):
         super().__init__()
+        configuredCapacity = config.get("capacity")
         self.service = VeDbusService(SERVICE_NAME, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      PRODUCT_ID, PRODUCT_NAME, FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
@@ -113,13 +115,11 @@ class BatteryService(SettableService):
         self.service.add_path("/Dc/0/Power", 0, gettextcallback=POWER_TEXT)
         self.service.add_path("/Dc/0/Temperature", None)
         self.service.add_path("/Soc", None)
-        self.service.add_path("/ConsumedAmphours", 0, gettextcallback=AH_TEXT)
-        self.service.add_path("/Capacity", None, gettextcallback=AH_TEXT)
-        self.service.add_path("/InstalledCapacity", None, gettextcallback=AH_TEXT)
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
         self.aggregators = [
+            Aggregator('/ConsumedAmphours', _safe_sum, AMP_HOURS),
             Aggregator('/Info/BatteryLowVoltage', _safe_max, VOLTAGE),
             Aggregator('/Info/MaxChargeCurrent', _safe_sum, CURRENT),
             Aggregator('/Info/MaxChargeVoltage', _safe_min, VOLTAGE),
@@ -129,8 +129,15 @@ class BatteryService(SettableService):
             Aggregator('/System/MaxCellTemperature', _safe_max, TEMPERATURE),
             Aggregator('/System/MaxCellVoltage', _safe_max, VOLTAGE),
         ]
+        if configuredCapacity:
+            self.service.add_path("/InstalledCapacity", configuredCapacity, gettextcallback=AH_TEXT)
+        else:
+            self.aggregators.append(Aggregator('/Capacity', _safe_sum, AMP_HOURS))
+            self.aggregators.append(Aggregator('/InstalledCapacity', _safe_sum, AMP_HOURS))
+
         for aggr in self.aggregators:
             self.service.add_path(aggr.path, None, gettextcallback=aggr.unit.gettextcallback)
+
         self.alarms = [
             "/Alarms/CellImbalance",
             "/Alarms/LowSoc",
@@ -162,9 +169,6 @@ class BatteryService(SettableService):
                         '/Dc/0/Power': options,
                         '/Dc/0/Temperature': options,
                         '/Soc': options,
-                        '/ConsumedAmphours': options,
-                        '/Capacity': options,
-                        '/InstalledCapacity': options,
                     },
                     **{aggr.path: options for aggr in self.aggregators}
                 }
@@ -179,11 +183,8 @@ class BatteryService(SettableService):
         totalCurrent = 0
         totalPower = 0
         voltageSum = 0
-        totalConsumedAh = 0
         temperatureStats = Statistics()
         socStats = Statistics()
-        totalCapacity = 0
-        totalInstalledCapacity = 0
         batteryCount = 0
         aggregated_alarms = {}
 
@@ -210,14 +211,8 @@ class BatteryService(SettableService):
 
         for serviceName in serviceNames:
             temperature = self._get_value(serviceName, "/Dc/0/Temperature")
-            soc = self._get_value(serviceName, "/Soc")
-            consumedAh = self._get_value(serviceName, "/ConsumedAmphours", 0)
-            capacity = self._get_value(serviceName, "/Capacity" ,0)
-            installedCapacity = self._get_value(serviceName, "/InstalledCapacity" ,0)
-            totalConsumedAh += consumedAh
-            totalCapacity += capacity
-            totalInstalledCapacity += installedCapacity
             temperatureStats.add(temperature)
+            soc = self._get_value(serviceName, "/Soc")
             socStats.add(soc)
 
             for aggr in self.aggregators:
@@ -228,10 +223,6 @@ class BatteryService(SettableService):
 
         self._local_values["/Dc/0/Temperature"] = temperatureStats.mean()
         self._local_values["/Soc"] = socStats.mean()
-        self._local_values["/ConsumedAmphours"] = totalConsumedAh
-
-        self._local_values["/Capacity"] = totalCapacity
-        self._local_values["/InstalledCapacity"] = totalInstalledCapacity
 
         for aggr in self.aggregators:
             self._local_values[aggr.path] = aggr.value

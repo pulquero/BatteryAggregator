@@ -21,3 +21,10 @@ To exclude the battery service `com.victronenergy.battery.shunt1`, add:
 	{
 		"excludedServices": ["com.victronenergy.battery.shunt1"]
 	}
+
+To set the installed capacity (if it is not available via aggregation), add:
+
+	{
+		"capacity": 200
+	}
+

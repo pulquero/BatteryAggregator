@@ -11,6 +11,8 @@ from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
+from settingsdevice import SettingsDevice
+from settableservice import SettableService
 from pathlib import Path
 import json
 
@@ -76,11 +78,13 @@ def _safe_sum(newValue, currentValue):
     return newValue + currentValue if currentValue else newValue
 
 
-class BatteryService:
+class BatteryService(SettableService):
     def __init__(self, conn, config):
+        super().__init__()
         self.service = VeDbusService(SERVICE_NAME, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      PRODUCT_ID, PRODUCT_NAME, FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.add_settable_path("/CustomName", "", 0, 0)
         self.service.add_path("/Dc/0/Voltage", 0, gettextcallback=VOLTAGE_TEXT)
         self.service.add_path("/Dc/0/Current", 0, gettextcallback=CURRENT_TEXT)
         self.service.add_path("/Dc/0/Power", 0, gettextcallback=POWER_TEXT)
@@ -90,6 +94,8 @@ class BatteryService:
         self.service.add_path("/Capacity", None, gettextcallback=AH_TEXT)
         self.service.add_path("/InstalledCapacity", None, gettextcallback=AH_TEXT)
         self.service.add_path("/System/NrOfBatteries", 0)
+        self.service.add_path("/System/BatteriesParallel", 0)
+        self.service.add_path("/System/BatteriesSeries", 1)
         self.service.add_path("/Info/BatteryLowVoltage", None)
         self.service.add_path("/Info/MaxChargeCurrent", None)
         self.service.add_path("/Info/MaxChargeVoltage", None)
@@ -109,6 +115,9 @@ class BatteryService:
         ]
         for alarm in self.alarms:
             self.service.add_path(alarm, ALARM_OK)
+
+        self._init_settings(conn)
+
         self._local_values = {}
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
@@ -165,6 +174,7 @@ class BatteryService:
             batteryCount += 1
 
         self._local_values["/System/NrOfBatteries"] = batteryCount
+        self._local_values["/System/BatteriesParallel"] = batteryCount
         self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
         self._local_values["/Dc/0/Current"] = totalCurrent
         self._local_values["/Dc/0/Power"] = totalPower

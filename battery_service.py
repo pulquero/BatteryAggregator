@@ -53,15 +53,15 @@ AH_TEXT = lambda path,value: "{:.3f}Ah".format(value)
 
 
 def _safe_min(newValue, currentValue):
-    return min(newValue, currentValue) if currentValue else newValue
+    return min(newValue, currentValue) if currentValue is not None else newValue
 
 
 def _safe_max(newValue, currentValue):
-    return max(newValue, currentValue) if currentValue else newValue
+    return max(newValue, currentValue) if currentValue is not None else newValue
 
 
 def _safe_sum(newValue, currentValue):
-    return newValue + currentValue if currentValue else newValue
+    return newValue + currentValue if currentValue is not None else newValue
 
 
 class Unit:
@@ -76,14 +76,12 @@ AMP_HOURS = Unit(AH_TEXT)
 
 
 class Aggregator:
-    def __init__(self, path, op, unit=None):
-        self.path = path
+    def __init__(self, op, unit=None):
         self.op = op
         self.value = None
         self.unit = unit
 
-    def add(self, getter, serviceName):
-        x = getter(serviceName, self.path)
+    def add(self, x):
         if x is not None:
             self.value = self.op(x, self.value)
 
@@ -118,25 +116,25 @@ class BatteryService(SettableService):
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
-        self.aggregators = [
-            Aggregator('/ConsumedAmphours', _safe_sum, AMP_HOURS),
-            Aggregator('/Info/BatteryLowVoltage', _safe_max, VOLTAGE),
-            Aggregator('/Info/MaxChargeCurrent', _safe_sum, CURRENT),
-            Aggregator('/Info/MaxChargeVoltage', _safe_min, VOLTAGE),
-            Aggregator('/Info/MaxDischargeCurrent', _safe_sum, CURRENT),
-            Aggregator('/System/MinCellTemperature', _safe_min, TEMPERATURE),
-            Aggregator('/System/MinCellVoltage', _safe_min, VOLTAGE),
-            Aggregator('/System/MaxCellTemperature', _safe_max, TEMPERATURE),
-            Aggregator('/System/MaxCellVoltage', _safe_max, VOLTAGE),
-        ]
+        self.aggregators = {
+            '/ConsumedAmphours': Aggregator(_safe_sum, AMP_HOURS),
+            '/Info/BatteryLowVoltage': Aggregator(_safe_max, VOLTAGE),
+            '/Info/MaxChargeCurrent': Aggregator(_safe_sum, CURRENT),
+            '/Info/MaxChargeVoltage': Aggregator(_safe_min, VOLTAGE),
+            '/Info/MaxDischargeCurrent': Aggregator(_safe_sum, CURRENT),
+            '/System/MinCellTemperature': Aggregator(_safe_min, TEMPERATURE),
+            '/System/MinCellVoltage': Aggregator(_safe_min, VOLTAGE),
+            '/System/MaxCellTemperature': Aggregator(_safe_max, TEMPERATURE),
+            '/System/MaxCellVoltage': Aggregator(_safe_max, VOLTAGE),
+        }
         if configuredCapacity:
             self.service.add_path("/InstalledCapacity", configuredCapacity, gettextcallback=AH_TEXT)
         else:
-            self.aggregators.append(Aggregator('/Capacity', _safe_sum, AMP_HOURS))
-            self.aggregators.append(Aggregator('/InstalledCapacity', _safe_sum, AMP_HOURS))
+            self.aggregators['/Capacity'] = Aggregator(_safe_sum, AMP_HOURS)
+            self.aggregators['/InstalledCapacity'] = Aggregator(_safe_sum, AMP_HOURS)
 
-        for aggr in self.aggregators:
-            self.service.add_path(aggr.path, None, gettextcallback=aggr.unit.gettextcallback)
+        for path, aggr in self.aggregators.items():
+            self.service.add_path(path, None, gettextcallback=aggr.unit.gettextcallback)
 
         self.alarms = [
             "/Alarms/CellImbalance",
@@ -170,7 +168,7 @@ class BatteryService(SettableService):
                         '/Dc/0/Temperature': options,
                         '/Soc': options,
                     },
-                    **{aggr.path: options for aggr in self.aggregators}
+                    **{path: options for path in self.aggregators}
                 }
             },
             excludedServiceNames=[SERVICE_NAME] + config.get("excludedServices", [])
@@ -202,11 +200,11 @@ class BatteryService(SettableService):
 
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/System/BatteriesParallel"] = batteryCount
-        self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
-        self._local_values["/Dc/0/Current"] = totalCurrent
-        self._local_values["/Dc/0/Power"] = totalPower
+        self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else None
+        self._local_values["/Dc/0/Current"] = totalCurrent if batteryCount > 0 else None
+        self._local_values["/Dc/0/Power"] = totalPower if batteryCount > 0 else None
 
-        for aggr in self.aggregators:
+        for aggr in self.aggregators.values():
             aggr.value = None
 
         for serviceName in serviceNames:
@@ -215,8 +213,9 @@ class BatteryService(SettableService):
             soc = self._get_value(serviceName, "/Soc")
             socStats.add(soc)
 
-            for aggr in self.aggregators:
-                aggr.add(self._get_value, serviceName)
+            for path, aggr in self.aggregators.items():
+                v = self._get_value(serviceName, path)
+                aggr.add(v)
 
             for alarm in self.alarms:
                 aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
@@ -224,8 +223,8 @@ class BatteryService(SettableService):
         self._local_values["/Dc/0/Temperature"] = temperatureStats.mean()
         self._local_values["/Soc"] = socStats.mean()
 
-        for aggr in self.aggregators:
-            self._local_values[aggr.path] = aggr.value
+        for path, aggr in self.aggregators.items():
+            self._local_values[path] = aggr.value
 
         if aggregated_alarms:
             for alarm in self.alarms:
@@ -235,7 +234,7 @@ class BatteryService(SettableService):
 
     def publish(self):
         self.update()
-        for k,v in self._local_values.items():
+        for k, v in self._local_values.items():
             self.service[k] = v
         return True
 

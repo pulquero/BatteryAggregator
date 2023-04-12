@@ -28,3 +28,10 @@ To set the installed capacity (if it is not available via aggregation), add:
 		"capacity": 200
 	}
 
+To create a virtual battery by merging two (or more) other batteries, add:
+
+	{
+		"virtualBatteries": ["com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]]
+	}
+
+NB: currently stopping the service does not cleanly stop the virtual battery processes.

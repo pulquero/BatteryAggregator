@@ -13,16 +13,19 @@ from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 from settingsdevice import SettingsDevice
 from settableservice import SettableService
-from pathlib import Path
+import functools
+import hashlib
 import json
+from pathlib import Path
+import multiprocessing
 
 SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
-PRODUCT_ID = 0
-PRODUCT_NAME = "Battery Aggregator"
 FIRMWARE_VERSION = 0
 HARDWARE_VERSION = 0
 CONNECTED = 1
+
+BASE_DEVICE_INSTANCE_ID = DEVICE_INSTANCE_ID + 32
 
 ALARM_OK = 0
 ALARM_WARNING = 1
@@ -71,22 +74,23 @@ class Unit:
 
 VOLTAGE = Unit(VOLTAGE_TEXT)
 CURRENT = Unit(CURRENT_TEXT)
+POWER = Unit(POWER_TEXT)
 TEMPERATURE = Unit()
 AMP_HOURS = Unit(AH_TEXT)
+NO_UNIT = Unit()
 
 
 class Aggregator:
-    def __init__(self, op, unit=None):
+    def __init__(self, op, initial_value=None):
         self.op = op
-        self.value = None
-        self.unit = unit
+        self.value = initial_value
 
     def add(self, x):
         if x is not None:
             self.value = self.op(x, self.value)
 
 
-class Statistics:
+class MeanAggregator:
     def __init__(self):
         self.sum = 0
         self.count = 0
@@ -96,83 +100,98 @@ class Statistics:
             self.sum += x
             self.count += 1
 
-    def mean(self):
+    @property
+    def value(self):
         return self.sum/self.count if self.count > 0 else None
 
 
-class BatteryService(SettableService):
+SumAggregator = functools.partial(Aggregator, _safe_sum)
+MinAggregator = functools.partial(Aggregator, _safe_min)
+MaxAggregator = functools.partial(Aggregator, _safe_max)
+AlarmAggregator = functools.partial(Aggregator, max, ALARM_OK)
+
+
+class PathDefinition:
+    def __init__(self, unit=NO_UNIT, aggregatorClass=None, defaultValue=None):
+        self.unit = unit
+        self.aggregatorClass = aggregatorClass
+        self.defaultValue = defaultValue
+
+
+BATTERY_PATHS = {
+    '/Dc/0/Current': PathDefinition(CURRENT, defaultValue=0),
+    '/Dc/0/Voltage': PathDefinition(VOLTAGE, defaultValue=0),
+    '/Dc/0/Power':  PathDefinition(POWER, defaultValue=0),
+    '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MeanAggregator),
+    '/Soc':  PathDefinition(NO_UNIT, MeanAggregator, defaultValue=0),
+    '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
+    '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
+    '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
+    '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
+    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, SumAggregator),
+    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MinAggregator),
+    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, SumAggregator),
+    '/System/MinCellTemperature': PathDefinition(TEMPERATURE, MinAggregator),
+    '/System/MinCellVoltage': PathDefinition(VOLTAGE, MinAggregator),
+    '/System/MaxCellTemperature': PathDefinition(TEMPERATURE, MaxAggregator),
+    '/System/MaxCellVoltage': PathDefinition(VOLTAGE, MaxAggregator),
+    '/Alarms/CellImbalance': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/LowSoc': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/HighDischargeCurrent': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/LowVoltage': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/HighVoltage': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/LowCellVoltage': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/HighCellVoltage': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/LowTemperature': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/HighTemperature': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/LowChargeTemperature': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+    '/Alarms/HighChargeTemperature': PathDefinition(aggregatorClass=AlarmAggregator, defaultValue=ALARM_OK),
+}
+
+
+class BatteryAggregatorService(SettableService):
     def __init__(self, conn, config):
         super().__init__()
         configuredCapacity = config.get("capacity")
+        scanPaths = set(BATTERY_PATHS.keys())
+
         self.service = VeDbusService(SERVICE_NAME, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
-                                     PRODUCT_ID, PRODUCT_NAME, FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
-        self.add_settable_path("/CustomName", "", 0, 0)
-        self.service.add_path("/Dc/0/Voltage", 0, gettextcallback=VOLTAGE_TEXT)
-        self.service.add_path("/Dc/0/Current", 0, gettextcallback=CURRENT_TEXT)
-        self.service.add_path("/Dc/0/Power", 0, gettextcallback=POWER_TEXT)
-        self.service.add_path("/Dc/0/Temperature", None)
-        self.service.add_path("/Soc", None)
+                                     0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.add_settable_path("/CustomName", "")
+        for path, defn in BATTERY_PATHS.items():
+            self.service.add_path(path, defn.defaultValue, gettextcallback=defn.unit.gettextcallback)
+        if configuredCapacity:
+            self.service['/InstalledCapacity'] = configuredCapacity
+            self.service['/Capacity'] = None
+            scanPaths.remove('/InstalledCapacity')
+            scanPaths.remove('/Capacity')
+
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
-        self.aggregators = {
-            '/ConsumedAmphours': Aggregator(_safe_sum, AMP_HOURS),
-            '/Info/BatteryLowVoltage': Aggregator(_safe_max, VOLTAGE),
-            '/Info/MaxChargeCurrent': Aggregator(_safe_sum, CURRENT),
-            '/Info/MaxChargeVoltage': Aggregator(_safe_min, VOLTAGE),
-            '/Info/MaxDischargeCurrent': Aggregator(_safe_sum, CURRENT),
-            '/System/MinCellTemperature': Aggregator(_safe_min, TEMPERATURE),
-            '/System/MinCellVoltage': Aggregator(_safe_min, VOLTAGE),
-            '/System/MaxCellTemperature': Aggregator(_safe_max, TEMPERATURE),
-            '/System/MaxCellVoltage': Aggregator(_safe_max, VOLTAGE),
-        }
-        if configuredCapacity:
-            self.service.add_path("/InstalledCapacity", configuredCapacity, gettextcallback=AH_TEXT)
-        else:
-            self.aggregators['/Capacity'] = Aggregator(_safe_sum, AMP_HOURS)
-            self.aggregators['/InstalledCapacity'] = Aggregator(_safe_sum, AMP_HOURS)
-
-        for path, aggr in self.aggregators.items():
-            self.service.add_path(path, None, gettextcallback=aggr.unit.gettextcallback)
-
-        self.alarms = [
-            "/Alarms/CellImbalance",
-            "/Alarms/LowSoc",
-            "/Alarms/HighDischargeCurrent",
-            "/Alarms/LowVoltage",
-            "/Alarms/HighVoltage",
-            "/Alarms/LowCellVoltage",
-            "/Alarms/HighCellVoltage",
-            "/Alarms/LowTemperature",
-            "/Alarms/HighTemperature",
-            "/Alarms/LowChargeTemperature",
-            "/Alarms/HighChargeTemperature",
-        ]
-        for alarm in self.alarms:
-            self.service.add_path(alarm, ALARM_OK)
 
         self._init_settings(conn)
 
         self._local_values = {}
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
+
+        excludedServices = [SERVICE_NAME]
+        excludedServices.extend(config.get("excludedServices", []))
+        virtualBatteryConfigs = config.get("virtualBatteries", {})
+        for virtualBatteryConfig in virtualBatteryConfigs.values():
+            excludedServices.extend(virtualBatteryConfig)
+
         options = None  # currently not used afaik
         self.monitor = DbusMonitor(
             {
-                'com.victronenergy.battery': {
-                    **{
-                        '/Dc/0/Current': options,
-                        '/Dc/0/Voltage': options,
-                        '/Dc/0/Power': options,
-                        '/Dc/0/Temperature': options,
-                        '/Soc': options,
-                    },
-                    **{path: options for path in self.aggregators}
-                }
+                'com.victronenergy.battery': {path: options for path in scanPaths}
             },
-            excludedServiceNames=[SERVICE_NAME] + config.get("excludedServices", [])
+            excludedServiceNames=excludedServices
         )
+
+        self._aggregatePaths = {path: BATTERY_PATHS[path] for path in scanPaths if BATTERY_PATHS[path].aggregatorClass is not None}
 
     def _get_value(self, serviceName, path, defaultValue=None):
         return self.monitor.get_value(serviceName, path, defaultValue)
@@ -181,10 +200,7 @@ class BatteryService(SettableService):
         totalCurrent = 0
         totalPower = 0
         voltageSum = 0
-        temperatureStats = Statistics()
-        socStats = Statistics()
         batteryCount = 0
-        aggregated_alarms = {}
 
         serviceNames = self.monitor.get_service_list('com.victronenergy.battery')
 
@@ -200,35 +216,22 @@ class BatteryService(SettableService):
 
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/System/BatteriesParallel"] = batteryCount
-        self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else None
-        self._local_values["/Dc/0/Current"] = totalCurrent if batteryCount > 0 else None
-        self._local_values["/Dc/0/Power"] = totalPower if batteryCount > 0 else None
+        self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
+        self._local_values["/Dc/0/Current"] = totalCurrent if batteryCount > 0 else 0
+        self._local_values["/Dc/0/Power"] = totalPower if batteryCount > 0 else 0
 
-        for aggr in self.aggregators.values():
-            aggr.value = None
+        # other values
+        aggregators = {}
+        for path, defn in self._aggregatePaths.items():
+            aggregators[path] = defn.aggregatorClass()
 
         for serviceName in serviceNames:
-            temperature = self._get_value(serviceName, "/Dc/0/Temperature")
-            temperatureStats.add(temperature)
-            soc = self._get_value(serviceName, "/Soc")
-            socStats.add(soc)
-
-            for path, aggr in self.aggregators.items():
+            for path, aggr in aggregators.items():
                 v = self._get_value(serviceName, path)
                 aggr.add(v)
 
-            for alarm in self.alarms:
-                aggregated_alarms[alarm] = max(self._get_value(serviceName, alarm, ALARM_OK), aggregated_alarms.get(alarm, ALARM_OK))
-
-        self._local_values["/Dc/0/Temperature"] = temperatureStats.mean()
-        self._local_values["/Soc"] = socStats.mean()
-
-        for path, aggr in self.aggregators.items():
-            self._local_values[path] = aggr.value
-
-        if aggregated_alarms:
-            for alarm in self.alarms:
-                self._local_values[alarm] = aggregated_alarms[alarm]
+        for path, aggr in aggregators.items():
+            self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue
 
         return True
 
@@ -239,10 +242,63 @@ class BatteryService(SettableService):
         return True
 
     def __str__(self):
-        return PRODUCT_NAME
+        return self.service.serviceName
 
 
-def main():
+class VirtualBatteryService(SettableService):
+    def __init__(self, conn, serviceName, config):
+        super().__init__()
+        for name in [serviceName] + config:
+            if not name.startswith("com.victronenergy.battery."):
+                raise ValueError(f"Invalid service name: {name}")
+
+        offset = hashlib.sha1(serviceName.split('.')[-1].encode('utf-8')).digest()[0]
+        self.service = VeDbusService(serviceName, conn)
+        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', BASE_DEVICE_INSTANCE_ID + offset,
+                                     0, "Virtual Battery", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.add_settable_path("/CustomName", "")
+        for path, defn in BATTERY_PATHS.items():
+            self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
+
+        self._mergedServices = list(reversed(config))
+
+        self._init_settings(conn)
+
+        self._local_values = {}
+        for path in self.service._dbusobjects:
+            self._local_values[path] = self.service[path]
+
+        options = None  # currently not used afaik
+        self.monitor = DbusMonitor(
+            {
+                'com.victronenergy.battery': {path: options for path in BATTERY_PATHS}
+            },
+            includedServiceNames=config,
+            excludedServiceNames=[SERVICE_NAME, serviceName]
+        )
+
+    def _get_value(self, serviceName, path, defaultValue=None):
+        return self.monitor.get_value(serviceName, path, defaultValue)
+
+    def update(self):
+        for serviceName in self._mergedServices:
+            for path in BATTERY_PATHS:
+                    v = self._get_value(serviceName, path)
+                    if v is not None:
+                        self._local_values[path] = v
+        return True
+
+    def publish(self):
+        self.update()
+        for k, v in self._local_values.items():
+            self.service[k] = v
+        return True
+
+    def __str__(self):
+        return self.service.serviceName
+
+
+def main(virtualBatteryName=None):
     DBusGMainLoop(set_as_default=True)
     setupOptions = Path("/data/setupOptions/BatteryAggregator")
     configFile = setupOptions/"config.json"
@@ -254,9 +310,21 @@ def main():
         pass
     except json.JSONDecodeError:
         logger.warning("Ignoring invalid JSON file")
-    battery = BatteryService(dbusConnection(), config)
-    GLib.timeout_add(250, battery.publish)
-    logger.info("Registered Battery Aggregator")
+
+    virtualBatteryConfigs = config.get("virtualBatteries", {})
+    if virtualBatteryName:
+        virtualBatteryConfig = virtualBatteryConfigs[virtualBatteryName]
+        virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig)
+        GLib.timeout_add(250, virtualBattery.publish)
+        logger.info(f"Registered Virtual Battery {virtualBattery.service.serviceName}")
+    else:
+        virtualBatteryConfigs = config.get("virtualBatteries", {})
+        for virtualBatteryName in virtualBatteryConfigs:
+            p = multiprocessing.Process(target=main, args=(virtualBatteryName,), daemon=True)
+            p.start()
+        batteryAggr = BatteryAggregatorService(dbusConnection(), config)
+        GLib.timeout_add(250, batteryAggr.publish)
+        logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
     mainloop = GLib.MainLoop()
     mainloop.run()
 

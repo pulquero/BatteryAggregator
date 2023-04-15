@@ -167,6 +167,7 @@ class BatteryAggregatorService(SettableService):
             scanPaths.remove('/InstalledCapacity')
             scanPaths.remove('/Capacity')
 
+        self.service.add_path("/System/Batteries", None)
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
@@ -212,8 +213,10 @@ class BatteryAggregatorService(SettableService):
             totalCurrent += current
             voltageSum += voltage
             totalPower += power
-            batteryCount += 1
 
+        batteryCount = len(serviceNames)
+
+        self._local_values["/System/Batteries"] = json.dumps(serviceNames)
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/System/BatteriesParallel"] = batteryCount
         self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
@@ -259,6 +262,7 @@ class VirtualBatteryService(SettableService):
         self.add_settable_path("/CustomName", "")
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
+        self.service.add_path("/System/Batteries", json.dumps(config))
 
         self._mergedServices = list(reversed(config))
 

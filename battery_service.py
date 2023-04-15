@@ -18,6 +18,7 @@ import hashlib
 import json
 from pathlib import Path
 import multiprocessing
+import signal
 
 SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
@@ -201,7 +202,6 @@ class BatteryAggregatorService(SettableService):
         totalCurrent = 0
         totalPower = 0
         voltageSum = 0
-        batteryCount = 0
 
         serviceNames = self.monitor.get_service_list('com.victronenergy.battery')
 
@@ -216,7 +216,7 @@ class BatteryAggregatorService(SettableService):
 
         batteryCount = len(serviceNames)
 
-        self._local_values["/System/Batteries"] = json.dumps(serviceNames)
+        self._local_values["/System/Batteries"] = json.dumps(list(serviceNames.keys()))
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/System/BatteriesParallel"] = batteryCount
         self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0
@@ -323,12 +323,23 @@ def main(virtualBatteryName=None):
         logger.info(f"Registered Virtual Battery {virtualBattery.service.serviceName}")
     else:
         virtualBatteryConfigs = config.get("virtualBatteries", {})
+        processes = []
         for virtualBatteryName in virtualBatteryConfigs:
-            p = multiprocessing.Process(target=main, args=(virtualBatteryName,), daemon=True)
+            p = multiprocessing.Process(target=main, name=virtualBatteryName, args=(virtualBatteryName,), daemon=True)
+            processes.append(p)
             p.start()
         batteryAggr = BatteryAggregatorService(dbusConnection(), config)
         GLib.timeout_add(250, batteryAggr.publish)
         logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
+        def kill_handler(signum, frame):
+            for p in processes:
+                p.terminate()
+                p.join()
+                p.close()
+                logger.info(f"Stopped child process {p.name}")
+            logger.info("Exit")
+            exit(0)
+        signal.signal(signal.SIGTERM, kill_handler)
     mainloop = GLib.MainLoop()
     mainloop.run()
 

@@ -125,6 +125,7 @@ BATTERY_PATHS = {
     '/Dc/0/Power':  PathDefinition(POWER, defaultValue=0),
     '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MeanAggregator),
     '/Soc':  PathDefinition(NO_UNIT, MeanAggregator, defaultValue=0),
+    '/TimeToGo':  PathDefinition(NO_UNIT, MeanAggregator, defaultValue=0),
     '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),

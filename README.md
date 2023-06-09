@@ -18,18 +18,23 @@ Optionally create the file `/data/setupOptions/BatteryAggregator/config.json`.
 
 To exclude the battery service `com.victronenergy.battery.shunt1`, add:
 
-	{
 		"excludedServices": ["com.victronenergy.battery.shunt1"]
-	}
 
 To set the installed capacity (if it is not available via aggregation), add:
 
-	{
 		"capacity": 200
-	}
 
 To create a virtual battery by merging two (or more) other batteries, add:
 
+		"virtualBatteries": {
+			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]
+		}
+
+## Example
+
 	{
-		"virtualBatteries": ["com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]]
+		"virtualBatteries": {
+			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.ttyS6", "com.victronenergy.battery.ttyUSB0"],
+			"com.victronenergy.battery.virtual2": ["com.victronenergy.battery.ttyS7", "com.victronenergy.battery.ttyUSB1"]
+		}
 	}

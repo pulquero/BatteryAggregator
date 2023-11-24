@@ -30,7 +30,15 @@ To create a virtual battery by merging two (or more) other batteries, add:
 			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]
 		}
 
-## Example
+## Examples
+
+### Exclude a shunt from aggregation
+
+	{
+		"excludedServices": ["com.victronenergy.battery.shunt1"]
+	}
+
+### Create virtual batteries from two BMSes, each in series with a shunt
 
 	{
 		"virtualBatteries": {

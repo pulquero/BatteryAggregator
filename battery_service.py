@@ -20,7 +20,7 @@ from pathlib import Path
 import multiprocessing
 import signal
 
-SERVICE_NAME = 'com.victronenergy.battery.aggregator'
+DEFAULT_SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
 FIRMWARE_VERSION = 0
 HARDWARE_VERSION = 0
@@ -160,12 +160,12 @@ BATTERY_PATHS = {
 
 
 class BatteryAggregatorService(SettableService):
-    def __init__(self, conn, config):
+    def __init__(self, conn, serviceName, config):
         super().__init__()
         configuredCapacity = config.get("capacity")
         scanPaths = set(BATTERY_PATHS.keys())
 
-        self.service = VeDbusService(SERVICE_NAME, conn)
+        self.service = VeDbusService(serviceName, conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.add_settable_path("/CustomName", "")
@@ -188,7 +188,7 @@ class BatteryAggregatorService(SettableService):
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
 
-        excludedServices = [SERVICE_NAME]
+        excludedServices = [serviceName]
         excludedServices.extend(config.get("excludedServices", []))
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
@@ -287,7 +287,7 @@ class VirtualBatteryService(SettableService):
                 'com.victronenergy.battery': {path: options for path in BATTERY_PATHS}
             },
             includedServiceNames=config,
-            excludedServiceNames=[SERVICE_NAME, serviceName]
+            excludedServiceNames=[serviceName]
         )
 
     def _get_value(self, serviceName, path, defaultValue=None):
@@ -337,7 +337,7 @@ def main(virtualBatteryName=None):
             p = multiprocessing.Process(target=main, name=virtualBatteryName, args=(virtualBatteryName,), daemon=True)
             processes.append(p)
             p.start()
-        batteryAggr = BatteryAggregatorService(dbusConnection(), config)
+        batteryAggr = BatteryAggregatorService(dbusConnection(), DEFAULT_SERVICE_NAME, config)
         GLib.timeout_add(250, batteryAggr.publish)
         logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
         def kill_handler(signum, frame):

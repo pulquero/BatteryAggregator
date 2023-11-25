@@ -28,6 +28,12 @@ To pre-merge information from other services, add:
 
 		"auxiliaryServices": ["com.victronenergy.battery.defaultMetadata", "com.victronenergy.battery.leastPrecedence"]
 
+(or use the more advanced syntax if interested in specific DBus paths:
+
+		"auxiliaryServices": {"com.victronenergy.battery.dev1": ["/Info/Location"]}
+
+)
+
 To set the installed capacity (if it is not available via aggregation), add:
 
 		"capacity": 200
@@ -37,6 +43,17 @@ To create a virtual battery by merging two (or more) other batteries, add:
 		"virtualBatteries": {
 			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]
 		}
+	{
+
+(or use the more advanced syntax if interested in specific DBus paths:
+
+		"virtualBatteries": {
+			"com.victronenergy.battery.virtual1": {"com.victronenergy.battery.ttyS6": ["/Soc"], "com.victronenergy.battery.ttyUSB0": []},
+			"com.victronenergy.battery.virtual2": {"com.victronenergy.battery.ttyS7": ["/Soc"], "com.victronenergy.battery.ttyUSB1": []]
+		}
+	}
+
+)
 
 ## Examples
 

@@ -159,6 +159,31 @@ BATTERY_PATHS = {
 }
 
 
+class DataMerger:
+    def __init__(self, config):
+        if isinstance(config, list):
+            # convert short-hand format
+            self.paths = {serviceName: list(BATTERY_PATHS) for serviceName in reversed(config)}
+        elif isinstance(config, dict):
+            self.paths = {}
+            for k, v in reversed(config.items()):
+                if not v:
+                    v = BATTERY_PATHS
+                self.paths[k] = v
+        elif config is None:
+            self.paths = {}
+        else:
+            raise ValueError(f"Unsupported config object: {type(config)}")
+
+    def merge_into(self, service):
+        if self.paths:
+            for serviceName, includedPaths in self.paths.items():
+                for path in includedPaths:
+                        v = service._get_value(serviceName, path)
+                        if v is not None:
+                            service._local_values[path] = v
+
+
 class BatteryAggregatorService(SettableService):
     def __init__(self, conn, serviceName, config):
         super().__init__()
@@ -191,8 +216,8 @@ class BatteryAggregatorService(SettableService):
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
 
-        self._primaryServices = list(reversed(config.get("primaryServices", {})))
-        self._auxiliaryServices = list(reversed(config.get("auxiliaryServices", [])))
+        self._primaryServices = DataMerger(config.get("primaryServices"))
+        self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"))
 
         excludedServices = [serviceName]
         excludedServices.extend(config.get("excludedServices", []))
@@ -219,14 +244,10 @@ class BatteryAggregatorService(SettableService):
         voltageSum = 0
 
         # pre-populate with data from aux services
-        for serviceName in self._auxiliaryServices:
-            for path in BATTERY_PATHS:
-                    v = self._get_value(serviceName, path)
-                    if v is not None:
-                        self._local_values[path] = v
+        self._auxiliaryServices.merge_into(self)
 
         allServiceNames = self.monitor.get_service_list('com.victronenergy.battery')
-        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices and not in self._primaryServices]
+        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices.paths and s not in self._primaryServices.paths]
 
         # minimize delay between time sensitive values
         for serviceName in serviceNames:
@@ -260,11 +281,7 @@ class BatteryAggregatorService(SettableService):
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue
 
         # post-populate with data from primary services
-        for serviceName, includedPaths in self._primaryServices.items():
-            for path in includedPaths:
-                    v = self._get_value(serviceName, path)
-                    if v is not None:
-                        self._local_values[path] = v
+        self._primaryServices.merge_into(self)
 
         return True
 
@@ -281,7 +298,8 @@ class BatteryAggregatorService(SettableService):
 class VirtualBatteryService(SettableService):
     def __init__(self, conn, serviceName, config):
         super().__init__()
-        for name in [serviceName] + config:
+        mergedServiceNames = list(config)
+        for name in [serviceName] + mergedServiceNames:
             if not name.startswith("com.victronenergy.battery."):
                 raise ValueError(f"Invalid service name: {name}")
 
@@ -292,9 +310,9 @@ class VirtualBatteryService(SettableService):
         self.add_settable_path("/CustomName", "")
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
-        self.service.add_path("/System/Batteries", json.dumps(config))
+        self.service.add_path("/System/Batteries", json.dumps(mergedServiceNames))
 
-        self._mergedServices = list(reversed(config))
+        self._mergedServices = DataMerger(config)
 
         self._init_settings(conn)
 
@@ -307,7 +325,7 @@ class VirtualBatteryService(SettableService):
             {
                 'com.victronenergy.battery': {path: options for path in BATTERY_PATHS}
             },
-            includedServiceNames=config,
+            includedServiceNames=mergedServiceNames,
             excludedServiceNames=[serviceName]
         )
 
@@ -315,11 +333,7 @@ class VirtualBatteryService(SettableService):
         return self.monitor.get_value(serviceName, path, defaultValue)
 
     def update(self):
-        for serviceName in self._mergedServices:
-            for path in BATTERY_PATHS:
-                    v = self._get_value(serviceName, path)
-                    if v is not None:
-                        self._local_values[path] = v
+        self._mergedServices.merge_into(self)
         return True
 
     def publish(self):

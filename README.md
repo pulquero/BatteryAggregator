@@ -20,6 +20,10 @@ To exclude the battery service `com.victronenergy.battery.shunt1`, add:
 
 		"excludedServices": ["com.victronenergy.battery.shunt1"]
 
+To merge information from other services (e.g. a shunt), add:
+
+		"auxiliaryServices": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]
+
 To set the installed capacity (if it is not available via aggregation), add:
 
 		"capacity": 200
@@ -38,7 +42,13 @@ To create a virtual battery by merging two (or more) other batteries, add:
 		"excludedServices": ["com.victronenergy.battery.shunt1"]
 	}
 
-### Create virtual batteries from two BMSes, each in series with a shunt
+### Aggregate all available batteries with additional info provided by a shunt
+
+	{
+		"auxiliaryServices": ["com.victronenergy.battery.shunt1"]
+	}
+
+### Create two virtual batteries from two BMSes, each in series with a shunt, and aggregate them
 
 	{
 		"virtualBatteries": {

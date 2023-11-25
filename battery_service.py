@@ -162,6 +162,9 @@ BATTERY_PATHS = {
 class BatteryAggregatorService(SettableService):
     def __init__(self, conn, serviceName, config):
         super().__init__()
+        if not serviceName.startswith("com.victronenergy.battery."):
+            raise ValueError(f"Invalid service name: {serviceName}")
+
         configuredCapacity = config.get("capacity")
         scanPaths = set(BATTERY_PATHS.keys())
 
@@ -188,8 +191,11 @@ class BatteryAggregatorService(SettableService):
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
 
+        self._auxiliaryServices = list(reversed(config.get("auxiliaryServices", [])))
+
         excludedServices = [serviceName]
         excludedServices.extend(config.get("excludedServices", []))
+        excludedServices.extend(self._auxiliaryServices)
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
             excludedServices.extend(virtualBatteryConfig)
@@ -212,7 +218,15 @@ class BatteryAggregatorService(SettableService):
         totalPower = 0
         voltageSum = 0
 
-        serviceNames = self.monitor.get_service_list('com.victronenergy.battery')
+        # pre-populate with data from aux services
+        for serviceName in self._auxiliaryServices:
+            for path in BATTERY_PATHS:
+                    v = self._get_value(serviceName, path)
+                    if v is not None:
+                        self._local_values[path] = v
+
+        allServiceNames = self.monitor.get_service_list('com.victronenergy.battery')
+        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices]
 
         # minimize delay between time sensitive values
         for serviceName in serviceNames:
@@ -225,7 +239,7 @@ class BatteryAggregatorService(SettableService):
 
         batteryCount = len(serviceNames)
 
-        self._local_values["/System/Batteries"] = json.dumps(list(serviceNames.keys()))
+        self._local_values["/System/Batteries"] = json.dumps(serviceNames)
         self._local_values["/System/NrOfBatteries"] = batteryCount
         self._local_values["/System/BatteriesParallel"] = batteryCount
         self._local_values["/Dc/0/Voltage"] = voltageSum/batteryCount if batteryCount > 0 else 0

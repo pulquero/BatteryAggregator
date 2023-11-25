@@ -191,6 +191,7 @@ class BatteryAggregatorService(SettableService):
         for path in self.service._dbusobjects:
             self._local_values[path] = self.service[path]
 
+        self._primaryServices = list(reversed(config.get("primaryServices", {})))
         self._auxiliaryServices = list(reversed(config.get("auxiliaryServices", [])))
 
         excludedServices = [serviceName]
@@ -225,7 +226,7 @@ class BatteryAggregatorService(SettableService):
                         self._local_values[path] = v
 
         allServiceNames = self.monitor.get_service_list('com.victronenergy.battery')
-        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices]
+        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices and not in self._primaryServices]
 
         # minimize delay between time sensitive values
         for serviceName in serviceNames:
@@ -257,6 +258,13 @@ class BatteryAggregatorService(SettableService):
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue
+
+        # post-populate with data from primary services
+        for serviceName, includedPaths in self._primaryServices.items():
+            for path in includedPaths:
+                    v = self._get_value(serviceName, path)
+                    if v is not None:
+                        self._local_values[path] = v
 
         return True
 

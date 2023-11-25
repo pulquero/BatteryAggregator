@@ -195,7 +195,6 @@ class BatteryAggregatorService(SettableService):
 
         excludedServices = [serviceName]
         excludedServices.extend(config.get("excludedServices", []))
-        excludedServices.extend(self._auxiliaryServices)
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
             excludedServices.extend(virtualBatteryConfig)

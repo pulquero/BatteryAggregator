@@ -16,13 +16,17 @@ Select the Battery Aggregator as the `Battery monitor` under `System setup`.
 
 Optionally create the file `/data/setupOptions/BatteryAggregator/config.json`.
 
-To exclude the battery service `com.victronenergy.battery.shunt1`, add:
+To exclude, for instance, a shunt from being aggregated, first run `dbus-spy` from the command line to obtain its service name.
+It will likely be of the form `com.victronenergy.battery.ttyS9`.
+Then add:
 
-		"excludedServices": ["com.victronenergy.battery.shunt1"]
+		"excludedServices": ["com.victronenergy.battery.ttyS9"]
 
 To post-merge information from other services (e.g. a shunt), add:
 
-		"primaryServices": {"com.victronenergy.battery.shunt1": ["/Soc"], "com.victronenergy.battery.leastPrecedence": ["/Dc/0/Current"]}
+		"primaryServices": {"com.victronenergy.battery.ttyS5": ["/Soc"], "com.victronenergy.battery.leastPrecedence": ["/Dc/0/Current"]}
+
+(use SoC from the shunt, and current from the BMS with service name `com.victronenergy.battery.leastPrecedence`).
 
 To pre-merge information from other services, add:
 
@@ -41,7 +45,7 @@ To set the installed capacity (if it is not available via aggregation), add:
 To create a virtual battery by merging two (or more) other batteries, add:
 
 		"virtualBatteries": {
-			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.shunt1", "com.victronenergy.battery.leastPrecedence"]
+			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.ttyS2", "com.victronenergy.battery.leastPrecedence"]
 		}
 	{
 
@@ -53,20 +57,20 @@ To create a virtual battery by merging two (or more) other batteries, add:
 		}
 	}
 
-)
+note, empty array `[]` means include all paths)
 
 ## Examples
 
 ### Exclude a shunt from aggregation
 
 	{
-		"excludedServices": ["com.victronenergy.battery.shunt1"]
+		"excludedServices": ["com.victronenergy.battery.ttyS1"]
 	}
 
 ### Aggregate all available batteries with SoC info provided by a shunt taking precedence
 
 	{
-		"primaryServices": {"com.victronenergy.battery.shunt1": ["/SoC"]}
+		"primaryServices": {"com.victronenergy.battery.ttyS5": ["/SoC"]}
 	}
 
 ### Create two virtual batteries from two BMSes, each in series with a shunt, and aggregate them

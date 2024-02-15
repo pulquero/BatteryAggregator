@@ -82,9 +82,10 @@ NO_UNIT = Unit()
 
 
 class Aggregator:
-    def __init__(self, op, initial_value=None):
+    def __init__(self, op, initial_value=None, requires=None):
         self.op = op
         self.value = initial_value
+        self.requires = requires
 
     def add(self, x):
         if x is not None:
@@ -109,7 +110,10 @@ class MeanAggregator:
 SumAggregator = functools.partial(Aggregator, _safe_sum)
 MinAggregator = functools.partial(Aggregator, _safe_min)
 MaxAggregator = functools.partial(Aggregator, _safe_max)
-AlarmAggregator = functools.partial(Aggregator, max, ALARM_OK)
+AlarmAggregator = functools.partial(Aggregator, max, initial_value=ALARM_OK)
+BooleanAggregator = functools.partial(Aggregator, _safe_max)
+MaxChargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToCharge": 1})
+MaxDischargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToDischarge": 1})
 
 
 class PathDefinition:
@@ -130,9 +134,12 @@ BATTERY_PATHS = {
     '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
-    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, SumAggregator),
+    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, MaxChargeCurrentAggregator),
     '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MinAggregator),
-    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, SumAggregator),
+    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, MaxDischargeCurrentAggregator),
+    '/Io/AllowToCharge': PathDefinition(NO_UNIT, BooleanAggregator),
+    '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
+    '/Io/AllowToBalance': PathDefinition(NO_UNIT, BooleanAggregator),
     '/System/MinCellTemperature': PathDefinition(TEMPERATURE, MinAggregator),
     '/System/MinTemperatureCellId': PathDefinition(NO_UNIT, MinAggregator),
     '/System/MinCellVoltage': PathDefinition(VOLTAGE, MinAggregator),
@@ -274,8 +281,17 @@ class BatteryAggregatorService(SettableService):
 
         for serviceName in serviceNames:
             for path, aggr in aggregators.items():
-                v = self._get_value(serviceName, path)
-                aggr.add(v)
+                can_aggregate = True
+                if hasattr(aggr, 'requires') and aggr.requires:
+                    for requiredPath, requiredValue in aggr.requires.items():
+                        actualValue = self._get_value(serviceName, requiredPath, requiredValue)
+                        if actualValue != requiredValue:
+                            can_aggregate = False
+                            break
+
+                if can_aggregate:
+                    v = self._get_value(serviceName, path)
+                    aggr.add(v)
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue

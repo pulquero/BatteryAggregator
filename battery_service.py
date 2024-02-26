@@ -82,7 +82,8 @@ NO_UNIT = Unit()
 
 
 class Aggregator:
-    def __init__(self, op, initial_value=None, requires=None):
+    def __init__(self, op, initial_value=None, store=False, requires=None):
+        self.values = [] if store else None
         self.op = op
         self.value = initial_value
         self.requires = requires
@@ -90,6 +91,8 @@ class Aggregator:
     def add(self, x):
         if x is not None:
             self.value = self.op(x, self.value)
+        if self.values is not None:
+            self.values.append(x)
 
 
 class MeanAggregator:
@@ -112,7 +115,7 @@ MinAggregator = functools.partial(Aggregator, _safe_min)
 MaxAggregator = functools.partial(Aggregator, _safe_max)
 AlarmAggregator = functools.partial(Aggregator, max, initial_value=ALARM_OK)
 BooleanAggregator = functools.partial(Aggregator, _safe_max)
-MaxChargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToCharge": 1})
+MaxChargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, store=True, requires={"/Io/AllowToCharge": 1})
 MaxDischargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToDischarge": 1})
 
 
@@ -133,6 +136,7 @@ BATTERY_PATHS = {
     '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator, defaultValue=0),
+    '/Balancing': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
     '/Info/MaxChargeCurrent': PathDefinition(CURRENT, MaxChargeCurrentAggregator),
     '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MinAggregator),
@@ -257,13 +261,20 @@ class BatteryAggregatorService(SettableService):
         serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices.paths and s not in self._primaryServices.paths]
 
         # minimize delay between time sensitive values
+        batteryCurrents = []
+        batteryVoltages = []
+        batteryPowers = []
         for serviceName in serviceNames:
             current = self._get_value(serviceName, "/Dc/0/Current", 0)
             voltage = self._get_value(serviceName, "/Dc/0/Voltage", 0)
             power = self._get_value(serviceName, "/Dc/0/Power", voltage * current)
-            totalCurrent += current
-            voltageSum += voltage
-            totalPower += power
+            batteryCurrents.append(current)
+            batteryVoltages.append(voltage)
+            batteryPowers.append(power)
+
+        totalCurrent = sum(batteryCurrents)
+        voltageSum = sum(batteryVoltages)
+        totalPower = sum(batteryPowers)
 
         batteryCount = len(serviceNames)
 
@@ -292,6 +303,17 @@ class BatteryAggregatorService(SettableService):
                 if can_aggregate:
                     v = self._get_value(serviceName, path)
                     aggr.add(v)
+
+        # check for over-current and scale back
+        maxOvercurrentRatio = 0
+        maxChargeCurrentAggr = aggregators["/Info/MaxChargeCurrent"]
+        for i in range(batteryCount):
+            # charge current limit
+            ccl = maxChargeCurrentAggr.values[i]
+            if ccl is not None:
+                maxOvercurrentRatio = max(batteryCurrents[i]/ccl, maxOvercurrentRatio)
+        if maxOvercurrentRatio > 1:
+            maxChargeCurrentAggr.value /= maxOvercurrentRatio
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue

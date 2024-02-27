@@ -6,8 +6,7 @@ A battery monitor DBus service that aggregates the data for multiple batteries (
 
 # Install
 
-Install [SetupHelper](https://github.com/kwindrem/SetupHelper), use [this version](https://github.com/pulquero/SetupHelper) if you want this package
-to be available by default, else manually add it.
+Install [SetupHelper](https://github.com/kwindrem/SetupHelper).
 
 Select the Battery Aggregator as the `Battery monitor` under `System setup`.
 
@@ -81,3 +80,14 @@ note, empty array `[]` means include all paths)
 			"com.victronenergy.battery.virtual2": ["com.victronenergy.battery.ttyS7", "com.victronenergy.battery.ttyUSB1"]
 		}
 	}
+	
+## Troubleshooting
+
+Check the log:
+
+	cat /var/log/BatteryAggregator/current
+
+Restart the service:
+
+	svc -d /service/BatteryAggregator
+	svc -u /service/BatteryAggregator

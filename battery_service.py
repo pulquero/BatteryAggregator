@@ -300,9 +300,8 @@ class BatteryAggregatorService(SettableService):
                             can_aggregate = False
                             break
 
-                if can_aggregate:
-                    v = self._get_value(serviceName, path)
-                    aggr.add(v)
+                v = self._get_value(serviceName, path) if can_aggregate else None
+                aggr.add(v)
 
         # check for over-current and scale back
         maxOvercurrentRatio = 0

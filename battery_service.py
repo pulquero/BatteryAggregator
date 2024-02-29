@@ -201,31 +201,13 @@ class BatteryAggregatorService(SettableService):
         if not serviceName.startswith("com.victronenergy.battery."):
             raise ValueError(f"Invalid service name: {serviceName}")
 
-        configuredCapacity = config.get("capacity")
+        self._conn = conn
+        self._serviceName = serviceName
+        self._configuredCapacity = config.get("capacity")
         scanPaths = set(BATTERY_PATHS.keys())
-
-        self.service = VeDbusService(serviceName, conn)
-        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
-                                     0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
-        self.add_settable_path("/CustomName", "")
-        for path, defn in BATTERY_PATHS.items():
-            self.service.add_path(path, defn.defaultValue, gettextcallback=defn.unit.gettextcallback)
-        if configuredCapacity:
-            self.service['/InstalledCapacity'] = configuredCapacity
-            self.service['/Capacity'] = None
+        if self._configuredCapacity:
             scanPaths.remove('/InstalledCapacity')
             scanPaths.remove('/Capacity')
-
-        self.service.add_path("/System/Batteries", None)
-        self.service.add_path("/System/NrOfBatteries", 0)
-        self.service.add_path("/System/BatteriesParallel", 0)
-        self.service.add_path("/System/BatteriesSeries", 1)
-
-        self._init_settings(conn)
-
-        self._local_values = {}
-        for path in self.service._dbusobjects:
-            self._local_values[path] = self.service[path]
 
         self._primaryServices = DataMerger(config.get("primaryServices"))
         self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"))
@@ -246,8 +228,35 @@ class BatteryAggregatorService(SettableService):
 
         self._aggregatePaths = {path: BATTERY_PATHS[path] for path in scanPaths if BATTERY_PATHS[path].aggregatorClass is not None}
 
+    def register(self):
+        self.service = VeDbusService(self._serviceName, self._conn)
+        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
+                                     0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.add_settable_path("/CustomName", "")
+        for path, defn in BATTERY_PATHS.items():
+            self.service.add_path(path, defn.defaultValue, gettextcallback=defn.unit.gettextcallback)
+        if self._configuredCapacity:
+            self.service['/InstalledCapacity'] = self._configuredCapacity
+            self.service['/Capacity'] = None
+
+        self.service.add_path("/System/Batteries", None)
+        self.service.add_path("/System/NrOfBatteries", 0)
+        self.service.add_path("/System/BatteriesParallel", 0)
+        self.service.add_path("/System/BatteriesSeries", 1)
+
+        self._init_settings(self._conn)
+
+        self._local_values = {}
+        for path in self.service._dbusobjects:
+            self._local_values[path] = self.service[path]
+
     def _get_value(self, serviceName, path, defaultValue=None):
         return self.monitor.get_value(serviceName, path, defaultValue)
+
+    def get_battery_service_names(self):
+        allServiceNames = self.monitor.get_service_list('com.victronenergy.battery')
+        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices.paths and s not in self._primaryServices.paths]
+        return serviceNames
 
     def update(self):
         totalCurrent = 0
@@ -257,8 +266,7 @@ class BatteryAggregatorService(SettableService):
         # pre-populate with data from aux services
         self._auxiliaryServices.merge_into(self)
 
-        allServiceNames = self.monitor.get_service_list('com.victronenergy.battery')
-        serviceNames = [s for s in allServiceNames if s not in self._auxiliaryServices.paths and s not in self._primaryServices.paths]
+        serviceNames = self.get_battery_service_names()
 
         # minimize delay between time sensitive values
         batteryCurrents = []
@@ -409,9 +417,7 @@ def main(virtualBatteryName=None):
             p = multiprocessing.Process(target=main, name=virtualBatteryName, args=(virtualBatteryName,), daemon=True)
             processes.append(p)
             p.start()
-        batteryAggr = BatteryAggregatorService(dbusConnection(), DEFAULT_SERVICE_NAME, config)
-        GLib.timeout_add(250, batteryAggr.publish)
-        logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
+
         def kill_handler(signum, frame):
             for p in processes:
                 p.terminate()
@@ -420,7 +426,33 @@ def main(virtualBatteryName=None):
                 logger.info(f"Stopped child process {p.name}")
             logger.info("Exit")
             exit(0)
+
         signal.signal(signal.SIGTERM, kill_handler)
+
+        batteryAggr = BatteryAggregatorService(dbusConnection(), DEFAULT_SERVICE_NAME, config)
+
+        max_attempts = 5
+        attempts = 0
+
+        def wait_for_batteries():
+            nonlocal attempts
+            logger.info(f"Waiting for batteries (attempt {attempts+1} of {max_attempts})...")
+            if len(batteryAggr.get_battery_service_names()) > 0:
+                batteryAggr.register()
+                GLib.timeout_add(250, batteryAggr.publish)
+                logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
+                return False
+            else:
+                attempts += 1
+                if attempts < max_attempts:
+                    return True
+                else:
+                    logger.warning("No batteries discovered!")
+                    signal.raise_signal(signal.SIGTERM)
+                    return False
+
+        GLib.timeout_add_seconds(1, wait_for_batteries)
+
     mainloop = GLib.MainLoop()
     mainloop.run()
 

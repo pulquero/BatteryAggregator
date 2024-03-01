@@ -116,6 +116,7 @@ MaxAggregator = functools.partial(Aggregator, _safe_max)
 AlarmAggregator = functools.partial(Aggregator, max, initial_value=ALARM_OK)
 BooleanAggregator = functools.partial(Aggregator, _safe_max)
 MaxChargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, store=True, requires={"/Io/AllowToCharge": 1})
+MaxChargeVoltageAggregator = functools.partial(Aggregator, _safe_min, store=True)
 MaxDischargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToDischarge": 1})
 
 
@@ -139,7 +140,7 @@ BATTERY_PATHS = {
     '/Balancing': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
     '/Info/MaxChargeCurrent': PathDefinition(CURRENT, MaxChargeCurrentAggregator),
-    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MinAggregator),
+    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MaxChargeVoltageAggregator),
     '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, MaxDischargeCurrentAggregator),
     '/Io/AllowToCharge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
@@ -321,6 +322,13 @@ class BatteryAggregatorService(SettableService):
                 maxOvercurrentRatio = max(batteryCurrents[i]/ccl, maxOvercurrentRatio)
         if maxOvercurrentRatio > 1:
             maxChargeCurrentAggr.value /= maxOvercurrentRatio
+
+        # check for under-voltage
+        maxChargeVoltageAggr = aggregators["/Info/MaxChargeVoltage"]
+        balancingAggr = aggregators["/Balancing"]
+        if balancingAggr.value == 1:
+            # use max voltage for balancing
+            maxChargeVoltageAggr.value = max([v for v in maxChargeVoltageAggr.values if v is not None])
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue

@@ -228,6 +228,7 @@ class BatteryAggregatorService(SettableService):
         )
 
         self._aggregatePaths = {path: BATTERY_PATHS[path] for path in scanPaths if BATTERY_PATHS[path].aggregatorClass is not None}
+        self._previousOvercurrentRatio = None
 
     def register(self):
         self.service = VeDbusService(self._serviceName, self._conn)
@@ -326,7 +327,13 @@ class BatteryAggregatorService(SettableService):
                     maxOvercurrentBatteryName = serviceNames[i]
         if maxOvercurrentRatio > 1:
             scaledCCL = maxChargeCurrentAggr.value / maxOvercurrentRatio
-            logger.info(f"Max charge current is {maxChargeCurrentAggr.value} but scaling back to {scaledCCL} as limit exceeded for battery {maxOvercurrentBatteryName} (overcurrent ratio: {maxOvercurrentRatio})")
+            if self._previousOvercurrentRatio != maxOvercurrentRatio:
+                logger.info(f"Max charge current is {maxChargeCurrentAggr.value} but scaling back to {scaledCCL} as limit exceeded for battery {maxOvercurrentBatteryName} (overcurrent ratio: {maxOvercurrentRatio})")
+                logMsg = "Battery currents:\n"
+                for i in range(batteryCount):
+                    logMsg += "{serviceNames[i]}: {batteryCurrents[i]}, limit {maxChargeCurrentAggr.values[i]}\n"
+                logger.info(logMsg)
+                self._previousOvercurrentRatio = maxOvercurrentRatio
             maxChargeCurrentAggr.value = scaledCCL
 
         # check for under-voltage

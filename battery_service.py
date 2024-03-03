@@ -314,21 +314,29 @@ class BatteryAggregatorService(SettableService):
 
         # check for over-current and scale back
         maxOvercurrentRatio = 0
+        maxOvercurrentBatteryName = -1
         maxChargeCurrentAggr = aggregators["/Info/MaxChargeCurrent"]
         for i in range(batteryCount):
             # charge current limit
             ccl = maxChargeCurrentAggr.values[i]
             if ccl is not None:
-                maxOvercurrentRatio = max(batteryCurrents[i]/ccl, maxOvercurrentRatio)
+                batteryOvercurrentRatio = batteryCurrents[i]/ccl
+                if batteryOvercurrentRatio > maxOvercurrentRatio:
+                    maxOvercurrentRatio = batteryOvercurrentRatio
+                    maxOvercurrentBatteryName = serviceNames[i]
         if maxOvercurrentRatio > 1:
-            maxChargeCurrentAggr.value /= maxOvercurrentRatio
+            scaledCCL = maxChargeCurrentAggr.value / maxOvercurrentRatio
+            logger.info(f"Max charge current is {maxChargeCurrentAggr.value} but scaling back to {scaledCCL} as limit exceeded for battery {maxOvercurrentBatteryName} (overcurrent ratio: {maxOvercurrentRatio})")
+            maxChargeCurrentAggr.value = scaledCCL
 
         # check for under-voltage
         maxChargeVoltageAggr = aggregators["/Info/MaxChargeVoltage"]
         balancingAggr = aggregators["/Balancing"]
         if balancingAggr.value == 1:
             # use max voltage for balancing
-            maxChargeVoltageAggr.value = max([v for v in maxChargeVoltageAggr.values if v is not None])
+            maxCVL = max([v for v in maxChargeVoltageAggr.values if v is not None])
+            logger.info(f"Min charge voltage is {maxChargeVoltageAggr.value} but using max of {maxCVL} as balancing")
+            maxChargeVoltageAggr.value = maxCVL
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue

@@ -334,9 +334,11 @@ class BatteryAggregatorService(SettableService):
         balancingAggr = aggregators["/Balancing"]
         if balancingAggr.value == 1:
             # use max voltage for balancing
+            minCVL = maxChargeVoltageAggr.value
             maxCVL = max([v for v in maxChargeVoltageAggr.values if v is not None])
-            logger.info(f"Min charge voltage is {maxChargeVoltageAggr.value} but using max of {maxCVL} as balancing")
-            maxChargeVoltageAggr.value = maxCVL
+            if maxCVL > minCVL:
+                logger.info(f"Min charge voltage is {minCVL} but using max of {maxCVL} as balancing")
+                maxChargeVoltageAggr.value = maxCVL
 
         for path, aggr in aggregators.items():
             self._local_values[path] = aggr.value if batteryCount > 0 else self._aggregatePaths[path].defaultValue

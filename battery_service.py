@@ -331,7 +331,7 @@ class BatteryAggregatorService(SettableService):
                 logger.info(f"Max charge current is {maxChargeCurrentAggr.value} but scaling back to {scaledCCL} as limit exceeded for battery {maxOvercurrentBatteryName} (overcurrent ratio: {maxOvercurrentRatio})")
                 logMsg = "Battery currents:\n"
                 for i in range(batteryCount):
-                    logMsg += "{serviceNames[i]}: {batteryCurrents[i]}, limit {maxChargeCurrentAggr.values[i]}\n"
+                    logMsg += f"{serviceNames[i]}: {batteryCurrents[i]}, limit {maxChargeCurrentAggr.values[i]}\n"
                 logger.info(logMsg)
                 self._previousOvercurrentRatio = maxOvercurrentRatio
             maxChargeCurrentAggr.value = scaledCCL

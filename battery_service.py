@@ -456,7 +456,7 @@ def main(virtualBatteryName=None):
 
         batteryAggr = BatteryAggregatorService(dbusConnection(), DEFAULT_SERVICE_NAME, config)
 
-        max_attempts = 5
+        max_attempts = config.get("startupBatteryWait", 30)
         attempts = 0
 
         def wait_for_batteries():

@@ -230,7 +230,7 @@ class BatteryAggregatorService(SettableService):
         self._aggregatePaths = {path: BATTERY_PATHS[path] for path in scanPaths if BATTERY_PATHS[path].aggregatorClass is not None}
         self._previousOvercurrentRatio = None
 
-    def register(self):
+    def register(self, timeout):
         self.service = VeDbusService(self._serviceName, self._conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
@@ -246,7 +246,7 @@ class BatteryAggregatorService(SettableService):
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
 
-        self._init_settings(self._conn)
+        self._init_settings(self._conn, timeout=timeout)
 
         self._local_values = {}
         for path in self.service._dbusobjects:
@@ -463,7 +463,7 @@ def main(virtualBatteryName=None):
             nonlocal attempts
             logger.info(f"Waiting for batteries (attempt {attempts+1} of {max_attempts})...")
             if len(batteryAggr.get_battery_service_names()) > 0:
-                batteryAggr.register()
+                batteryAggr.register(timeout=15)
                 GLib.timeout_add(250, batteryAggr.publish)
                 logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
                 return False

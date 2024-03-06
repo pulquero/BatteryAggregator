@@ -320,8 +320,9 @@ class BatteryAggregatorService(SettableService):
         for i in range(batteryCount):
             # charge current limit
             ccl = maxChargeCurrentAggr.values[i]
-            if ccl is not None:
-                batteryOvercurrentRatio = batteryCurrents[i]/ccl
+            current = batteryCurrents[i]
+            if ccl is not None and current > ccl:
+                batteryOvercurrentRatio = current/ccl if ccl > 0 else float("inf")
                 if batteryOvercurrentRatio > maxOvercurrentRatio:
                     maxOvercurrentRatio = batteryOvercurrentRatio
                     maxOvercurrentBatteryName = serviceNames[i]

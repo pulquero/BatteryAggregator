@@ -390,7 +390,7 @@ class BatteryAggregatorService(SettableService):
             pathDeps = self.pathDependencies.get(dbusPath)
             if pathDeps:
                 for p in pathDeps:
-                    self._update_battery_path(dbusServiceName, p, self.service[p])
+                    self._update_battery_value(dbusServiceName, p, self.service[p])
 
     def _battery_added(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery added: {dbusServiceName}")

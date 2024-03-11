@@ -84,15 +84,26 @@ AMP_HOURS = Unit(AH_TEXT)
 NO_UNIT = Unit()
 
 
-class Aggregator:
-    def __init__(self, op, initial_value=None, requires=None):
+class AbstractAggregator:
+    def __init__(self, initial_value=None, requires=None):
         self.values = {}
-        self.op = op
         self.initial_value = initial_value
         self.requires = requires
 
     def set(self, name, x):
         self.values[name] = x
+
+    def unset(self, name):
+        del self.values[name]
+
+    def get_result(self):
+        ...
+
+
+class Aggregator(AbstractAggregator):
+    def __init__(self, op, initial_value=None, requires=None):
+        super().__init__(initial_value, requires)
+        self.op = op
 
     def get_result(self):
         r = self.initial_value
@@ -102,14 +113,9 @@ class Aggregator:
         return r
 
 
-class MeanAggregator:
+class MeanAggregator(AbstractAggregator):
     def __init__(self, initial_value=None, requires=None):
-        self.values = {}
-        self.initial_value = initial_value
-        self.requires = requires
-
-    def set(self, name, x):
-        self.values[name] = x
+        super().__init__(initial_value, requires)
 
     def get_result(self):
         _sum = 0
@@ -209,16 +215,27 @@ class DataMerger:
                     self.data_by_path[p] = path_values
                 path_values[service_name] = None
 
-    def init_values(self, api):
+    def init_values(self, service_name, api):
+        paths_changed = []
         for p, path_values in self.data_by_path.items():
-            for service_name in self.service_names:
-                path_values[service_name] = api._get_value(service_name, p)
+            if service_name in path_values:
+                path_values[service_name] = api.get_value(service_name, p)
+                paths_changed.append(p)
+        return paths_changed
 
-    def update_service_value(self, serviceName, path, value):
+    def clear_values(self, service_name):
+        paths_changed = []
+        for p, path_values in self.data_by_path.items():
+            if service_name in path_values:
+                path_values[service_name] = None
+                paths_changed.append(p)
+        return paths_changed
+
+    def update_service_value(self, service_name, path, value):
         path_values = self.data_by_path.get(path)
         if path_values:
-            if serviceName in path_values:
-                path_values[serviceName] = value
+            if service_name in path_values:
+                path_values[service_name] = value
 
     def get_value(self, path):
         path_values = self.data_by_path.get(path)
@@ -238,6 +255,7 @@ class BatteryAggregatorService(SettableService):
 
         self.logger = logging.getLogger(serviceName)
         self.service = None
+        self._registered = False
         self._conn = conn
         self._serviceName = serviceName
         self._configuredCapacity = config.get("capacity")
@@ -289,8 +307,8 @@ class BatteryAggregatorService(SettableService):
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.add_settable_path("/CustomName", "")
-        for path, defn in BATTERY_PATHS.items():
-            aggr = self.aggregators[path]
+        for path, aggr in self.aggregators.items():
+            defn = BATTERY_PATHS[path]
             self.service.add_path(path, aggr.initial_value, gettextcallback=defn.unit.gettextcallback)
         if self._configuredCapacity:
             self.service['/InstalledCapacity'] = self._configuredCapacity
@@ -303,25 +321,39 @@ class BatteryAggregatorService(SettableService):
         self._init_settings(self._conn, timeout=timeout)
 
         # initial values
-        self._primaryServices.init_values(self)
-        self._auxiliaryServices.init_values(self)
-        self._batteries_changed()
-        for path in BATTERY_PATHS:
+        paths_changed = set()
+        for battery_name in self._primaryServices.service_names:
+            if battery_name in self.monitor.servicesByName:
+                changed = self._primaryServices.init_values(battery_name, self.monitor)
+                paths_changed.update(changed)
+        for battery_name in self._primaryServices.service_names:
+            if battery_name in self.monitor.servicesByName:
+                changed = self._auxiliaryServices.init_values(battery_name, self.monitor)
+                paths_changed.update(changed)
+        for path in self.aggregators:
             for battery_name in self.battery_service_names:
-                aggr = self._update_aggregator(battery_name, path, self._get_value(battery_name, path))
-            aggr_result = self._get_aggregated_value(path)
-            self._refresh_value(path, aggr_result)
+                self._update_aggregator(battery_name, path, self.monitor.get_value(battery_name, path))
+            paths_changed.add(path)
+        self._refresh_values(paths_changed)
+        self._batteries_changed()
+
+        self._registered = True
 
     def _update_aggregator(self, dbusServiceName, dbusPath, value):
         aggr = self.aggregators[dbusPath]
         can_aggregate = True
         if aggr.requires:
             for requiredPath, requiredValue in aggr.requires.items():
-                actualValue = self._get_value(dbusServiceName, requiredPath, requiredValue)
+                actualValue = self.monitor.get_value(dbusServiceName, requiredPath, requiredValue)
                 if actualValue != requiredValue:
                     can_aggregate = False
                     break
+
         aggr.set(dbusServiceName, value if can_aggregate else None)
+
+    def _remove_from_aggregator(self, dbusServiceName, dbusPath):
+        aggr = self.aggregators[dbusPath]
+        aggr.unset(dbusServiceName)
 
     def _get_aggregated_value(self, dbusPath):
         aggr = self.aggregators[dbusPath]
@@ -362,52 +394,85 @@ class BatteryAggregatorService(SettableService):
 
         return aggr_result
 
-    def _refresh_value(self, dbusPath, aggr_result):
+    def _refresh_value(self, dbusPath):
         v = self._primaryServices.get_value(dbusPath)
         if v is None:
-            v = aggr_result
+            v = self._get_aggregated_value(dbusPath)
             if v is None:
                 v = self._auxiliaryServices.get_value(dbusPath)
         self.service[dbusPath] = v
 
-    def _get_value(self, serviceName, path, defaultValue=None):
-        return self.monitor.get_value(serviceName, path, defaultValue)
+    def _refresh_values(self, paths_changed):
+        for path in paths_changed:
+            self._refresh_value(path)
 
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
         # self.logger.info(f"Battery value changed: {dbusServiceName} {dbusPath}")
         value = changes['Value']
-        self._update_battery_value(dbusServiceName, dbusPath, value)
+        if dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
+                self._refresh_value(dbusPath)
+        elif dbusServiceName in self._primaryServices.service_names:
+            if self._registered:
+                self._primaryServices.update_service_value(dbusServiceName, dbusPath, value)
+                self._refresh_value(dbusPath)
+        else:
+            if self._registered:
+                self._update_battery_value(dbusServiceName, dbusPath, value)
 
     def _update_battery_value(self, dbusServiceName, dbusPath, value):
-        if self.service:
+        self._update_aggregator(dbusServiceName, dbusPath, value)
+        self._refresh_value(dbusPath)
 
-            self._primaryServices.update_service_value(dbusServiceName, dbusPath, value)
-            self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
-            self._update_aggregator(dbusServiceName, dbusPath, value)
-            aggr_result = self._get_aggregated_value(dbusPath)
-            self._refresh_value(dbusPath, aggr_result)
-
-            pathDeps = self.pathDependencies.get(dbusPath)
-            if pathDeps:
-                for p in pathDeps:
-                    self._update_battery_value(dbusServiceName, p, self.service[p])
+        pathDeps = self.pathDependencies.get(dbusPath)
+        if pathDeps:
+            for p in pathDeps:
+                self._update_battery_value(dbusServiceName, p, self.service[p])
 
     def _battery_added(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery added: {dbusServiceName}")
-        self.battery_service_names.append(dbusServiceName)
-        self._batteries_changed()
+        if dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
+                self._refresh_values(paths_changed)
+        elif dbusServiceName in self._primaryServices.service_names:
+            if self._registered:
+                paths_changed = self._primaryServices.init_values(dbusServiceName, self.monitor)
+                self._refresh_values(paths_changed)
+        else:
+            self.battery_service_names.append(dbusServiceName)
+            if self._registered:
+                for path in self.aggregators:
+                    self._update_aggregator(dbusServiceName, path, self.monitor.get_value(dbusServiceName, path))
+                    self._refresh_value(path)
+
+                self._batteries_changed()
 
     def _battery_removed(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery removed: {dbusServiceName}")
-        self.battery_service_names.remove(dbusServiceName)
-        self._batteries_changed()
+        if dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
+                self._refresh_values(paths_changed)
+        elif dbusServiceName in self._primaryServices.service_names:
+            if self._registered:
+                paths_changed = self._primaryServices.clear_values(dbusServiceName)
+                self._refresh_values(paths_changed)
+        else:
+            self.battery_service_names.remove(dbusServiceName)
+            if self._registered:
+                for path in self.aggregators:
+                    self._remove_from_aggregator(dbusServiceName, path)
+                    self._refresh_value(path)
+
+                self._batteries_changed()
 
     def _batteries_changed(self):
-        if self.service:
-            batteryCount = len(self.battery_service_names)
-            self.service["/System/Batteries"] = json.dumps(self.battery_service_names)
-            self.service["/System/NrOfBatteries"] = batteryCount
-            self.service["/System/BatteriesParallel"] = batteryCount
+        batteryCount = len(self.battery_service_names)
+        self.service["/System/Batteries"] = json.dumps(self.battery_service_names)
+        self.service["/System/NrOfBatteries"] = batteryCount
+        self.service["/System/BatteriesParallel"] = batteryCount
 
     def __str__(self):
         return self._serviceName
@@ -418,6 +483,7 @@ class VirtualBatteryService(SettableService):
         super().__init__()
         self.logger = logging.getLogger(serviceName)
         self.service = None
+        self._registered = False
         self._conn = conn
         self._serviceName = serviceName
 
@@ -433,6 +499,8 @@ class VirtualBatteryService(SettableService):
                 'com.victronenergy.battery': {path: options for path in BATTERY_PATHS}
             },
             valueChangedCallback=self._battery_value_changed,
+            deviceAddedCallback=self._battery_added,
+            deviceRemovedCallback=self._battery_removed,
             includedServiceNames=self._mergedServices.service_names,
             excludedServiceNames=[serviceName]
         )
@@ -445,17 +513,21 @@ class VirtualBatteryService(SettableService):
         self.add_settable_path("/CustomName", "")
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
-        self.service.add_path("/System/Batteries", json.dumps(self._mergedServices.service_names))
+        self.service.add_path("/System/Batteries", json.dumps(list(self.monitor.servicesByName)))
 
         self._init_settings(self._conn, timeout=timeout)
 
-        self._mergedServices.init_values(self)
-        for path in BATTERY_PATHS:
-            v = self._mergedServices.get_value(path)
-            self.service[path] = v
+        paths_changed = set()
+        for batteryName in self.monitor.servicesByName:
+            changed = self._mergedServices.init_values(batteryName, self.monitor)
+            paths_changed.update(changed)
+        self._refresh_values(paths_changed)
 
-    def _get_value(self, serviceName, path, defaultValue=None):
-        return self.monitor.get_value(serviceName, path, defaultValue)
+        self._registered = True
+
+    def _refresh_values(self, paths_changed):
+        for path in paths_changed:
+            self.service[path] = self._mergedServices.get_value(path)
 
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
         # self.logger.info(f"Battery value changed: {dbusServiceName} {dbusPath}")
@@ -463,9 +535,23 @@ class VirtualBatteryService(SettableService):
         self._update_battery_value(dbusServiceName, dbusPath, value)
 
     def _update_battery_value(self, dbusServiceName, dbusPath, value):
-        if self.service:
+        if self._registered:
             self._mergedServices.update_service_value(dbusServiceName, dbusPath, value)
             self.service[dbusPath] = self._mergedServices.get_value(dbusPath)
+
+    def _battery_added(self, dbusServiceName, deviceInstance):
+        # self.logger.info(f"Battery added: {dbusServiceName}")
+        if self._registered:
+            paths_changed = self._mergedServices.init_values(dbusServiceName, self.monitor)
+            self._refresh_values(paths_changed)
+            self.service["/System/Batteries"] = json.dumps(list(self.monitor.servicesByName))
+
+    def _battery_removed(self, dbusServiceName, deviceInstance):
+        # self.logger.info(f"Battery removed: {dbusServiceName}")
+        if self._registered:
+            paths_changed = self._mergedServices.clear_values(dbusServiceName)
+            self._refresh_values(paths_changed)
+            self.service["/System/Batteries"] = json.dumps(list(self.monitor.servicesByName))
 
     def __str__(self):
         return self._serviceName

@@ -85,10 +85,9 @@ NO_UNIT = Unit()
 
 
 class AbstractAggregator:
-    def __init__(self, initial_value=None, requires=None):
+    def __init__(self, initial_value=None):
         self.values = {}
         self.initial_value = initial_value
-        self.requires = requires
 
     def set(self, name, x):
         self.values[name] = x
@@ -101,8 +100,8 @@ class AbstractAggregator:
 
 
 class Aggregator(AbstractAggregator):
-    def __init__(self, op, initial_value=None, requires=None):
-        super().__init__(initial_value, requires)
+    def __init__(self, op, initial_value=None):
+        super().__init__(initial_value=initial_value)
         self.op = op
 
     def get_result(self):
@@ -114,8 +113,8 @@ class Aggregator(AbstractAggregator):
 
 
 class MeanAggregator(AbstractAggregator):
-    def __init__(self, initial_value=None, requires=None):
-        super().__init__(initial_value, requires)
+    def __init__(self, initial_value=None):
+        super().__init__(initial_value=initial_value)
 
     def get_result(self):
         _sum = 0
@@ -127,24 +126,31 @@ class MeanAggregator(AbstractAggregator):
         return _sum/_count if _count > 0 else self.initial_value
 
 
+class NullAggregator(AbstractAggregator):
+    def __init__(self):
+        super().__init__(initial_value=None)
+
+    def get_result(self):
+        return None
+
+
 SumAggregator = functools.partial(Aggregator, _sum, initial_value=0)
 MinAggregator = functools.partial(Aggregator, _safe_min)
 MaxAggregator = functools.partial(Aggregator, _safe_max)
 AlarmAggregator = functools.partial(Aggregator, max, initial_value=ALARM_OK)
 BooleanAggregator = functools.partial(Aggregator, _safe_max)
-MaxChargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToCharge": 1})
-MaxChargeVoltageAggregator = functools.partial(Aggregator, _safe_min)
-MaxDischargeCurrentAggregator = functools.partial(Aggregator, _safe_sum, requires={"/Io/AllowToDischarge": 1})
 Mean0Aggregator = functools.partial(MeanAggregator, initial_value=0)
 
 
 class PathDefinition:
-    def __init__(self, unit=NO_UNIT, aggregatorClass=None):
+    def __init__(self, unit=NO_UNIT, aggregatorClass=None, triggerPaths=None, action=None):
         self.unit = unit
         self.aggregatorClass = aggregatorClass
+        self.triggerPaths = triggerPaths
+        self.action = action
 
 
-BATTERY_PATHS = {
+AGGREGATED_BATTERY_PATHS = {
     '/Dc/0/Current': PathDefinition(CURRENT, SumAggregator),
     '/Dc/0/Voltage': PathDefinition(VOLTAGE, Mean0Aggregator),
     '/Dc/0/Power':  PathDefinition(POWER, SumAggregator),
@@ -156,9 +162,6 @@ BATTERY_PATHS = {
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator),
     '/Balancing': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
-    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, MaxChargeCurrentAggregator),
-    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, MaxChargeVoltageAggregator),
-    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, MaxDischargeCurrentAggregator),
     '/Io/AllowToCharge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToBalance': PathDefinition(NO_UNIT, BooleanAggregator),
@@ -187,6 +190,14 @@ BATTERY_PATHS = {
     '/Alarms/HighChargeTemperature': PathDefinition(aggregatorClass=AlarmAggregator),
 }
 
+ACTIVE_BATTERY_PATHS = {
+    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage'}, action=lambda api: api._updateCCL()),
+    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
+    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage'}, action=lambda api: api._updateDCL()),
+}
+
+BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
+
 
 class DataMerger:
     def __init__(self, config):
@@ -197,7 +208,7 @@ class DataMerger:
             expanded_config = {}
             for k, v in config.items():
                 if not v:
-                    v = BATTERY_PATHS
+                    v = list(BATTERY_PATHS)
                 expanded_config[k] = v
         elif config is None:
             expanded_config = {}
@@ -288,19 +299,9 @@ class BatteryAggregatorService(SettableService):
         self.battery_service_names = list(self.monitor.servicesByName)
 
         self.aggregators = {}
-        self.pathDependencies = {}
         for path in scanPaths:
             aggr = BATTERY_PATHS[path].aggregatorClass()
             self.aggregators[path] = aggr
-            if aggr.requires:
-                for depPath in aggr.requires:
-                    pathList = self.pathDependencies.get(depPath)
-                    if pathList is None:
-                        pathList = []
-                        self.pathDependencies[depPath] = pathList
-                    pathList.append(path)
-
-        self._previousOvercurrentCCL = None
 
     def register(self, timeout):
         self.service = VeDbusService(self._serviceName, self._conn)
@@ -332,75 +333,32 @@ class BatteryAggregatorService(SettableService):
                 paths_changed.update(changed)
         for path in self.aggregators:
             for battery_name in self.battery_service_names:
-                self._update_aggregator(battery_name, path, self.monitor.get_value(battery_name, path))
+                self.aggregators[path].set(battery_name, self.monitor.get_value(battery_name, path))
             paths_changed.add(path)
         self._refresh_values(paths_changed)
         self._batteries_changed()
 
         self._registered = True
 
-    def _update_aggregator(self, dbusServiceName, dbusPath, value):
-        aggr = self.aggregators[dbusPath]
-        can_aggregate = True
-        if aggr.requires:
-            for requiredPath, requiredValue in aggr.requires.items():
-                actualValue = self.monitor.get_value(dbusServiceName, requiredPath, requiredValue)
-                if actualValue != requiredValue:
-                    can_aggregate = False
-                    break
-
-        aggr.set(dbusServiceName, value if can_aggregate else None)
-
-    def _remove_from_aggregator(self, dbusServiceName, dbusPath):
-        aggr = self.aggregators[dbusPath]
-        aggr.unset(dbusServiceName)
-
-    def _get_aggregated_value(self, dbusPath):
-        aggr = self.aggregators[dbusPath]
-        aggr_result = aggr.get_result()
-
-        if dbusPath == "/Info/MaxChargeCurrent":
-            # check for over-current and scale back
-            maxOvercurrentRatio = 0
-            maxOvercurrentBatteryName = -1
-            for batteryName, ccl in aggr.values.items():
-                batteryCurrent = self.aggregators["/Dc/0/Current"].values.get(batteryName, 0)
-                if ccl is not None and batteryCurrent > ccl:
-                    batteryOvercurrentRatio = batteryCurrent/ccl if ccl > 0 else float("inf")
-                    if batteryOvercurrentRatio > maxOvercurrentRatio:
-                        maxOvercurrentRatio = batteryOvercurrentRatio
-                        maxOvercurrentBatteryName = batteryName
-            if maxOvercurrentRatio > 1:
-                scaledCCL = aggr_result / maxOvercurrentRatio
-                if self._previousOvercurrentCCL != scaledCCL:
-                    self.logger.info(f"Max charge current is {aggr_result} but scaling back to {scaledCCL} as limit exceeded for battery {maxOvercurrentBatteryName} (overcurrent ratio: {maxOvercurrentRatio})")
-                    logMsg = "Battery currents:\n"
-                    for batteryName, ccl in aggr.values.items():
-                        batteryCurrent = self.aggregators["/Dc/0/Current"].values.get(batteryName, 0)
-                        logMsg += f"{batteryName}: {batteryCurrent}, limit {ccl}\n"
-                    self.logger.info(logMsg)
-                    self._previousOvercurrentCCL = scaledCCL
-                aggr_result = scaledCCL
-
-        elif dbusPath == "/Info/MaxChargeVoltage":
-            # check for under-voltage
-            if self.service["/Balancing"] == 1:
-                # use max voltage for balancing
-                minCVL = aggr_result
-                maxCVL = max([v for v in aggr.values.values() if v is not None])
-                if maxCVL > minCVL:
-                    self.logger.info(f"Min charge voltage is {minCVL} but using max of {maxCVL} as balancing")
-                    aggr_result = maxCVL
-
-        return aggr_result
+    def _get_value(self, dbusPath):
+        aggr = self.aggregators.get(dbusPath)
+        if aggr:
+            return aggr.get_result()
+        else:
+            return self.service[dbusPath]
 
     def _refresh_value(self, dbusPath):
         v = self._primaryServices.get_value(dbusPath)
         if v is None:
-            v = self._get_aggregated_value(dbusPath)
+            v = self._get_value(dbusPath)
             if v is None:
                 v = self._auxiliaryServices.get_value(dbusPath)
-        self.service[dbusPath] = v
+
+        # don't bother updating active paths yet
+        if dbusPath not in ACTIVE_BATTERY_PATHS:
+            self.service[dbusPath] = v
+
+        self._update_active_values(dbusPath)
 
     def _refresh_values(self, paths_changed):
         for path in paths_changed:
@@ -412,67 +370,127 @@ class BatteryAggregatorService(SettableService):
         if dbusServiceName in self._auxiliaryServices.service_names:
             if self._registered:
                 self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
-                self._refresh_value(dbusPath)
         elif dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 self._primaryServices.update_service_value(dbusServiceName, dbusPath, value)
-                self._refresh_value(dbusPath)
         else:
             if self._registered:
-                self._update_battery_value(dbusServiceName, dbusPath, value)
+                self.aggregators[dbusPath].set(dbusServiceName, value)
 
-    def _update_battery_value(self, dbusServiceName, dbusPath, value):
-        self._update_aggregator(dbusServiceName, dbusPath, value)
-        self._refresh_value(dbusPath)
-
-        pathDeps = self.pathDependencies.get(dbusPath)
-        if pathDeps:
-            for p in pathDeps:
-                self._update_battery_value(dbusServiceName, p, self.service[p])
+        if self._registered:
+            self._refresh_value(dbusPath)
 
     def _battery_added(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery added: {dbusServiceName}")
+        paths_changed = None
         if dbusServiceName in self._auxiliaryServices.service_names:
             if self._registered:
                 paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
-                self._refresh_values(paths_changed)
         elif dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 paths_changed = self._primaryServices.init_values(dbusServiceName, self.monitor)
-                self._refresh_values(paths_changed)
         else:
             self.battery_service_names.append(dbusServiceName)
             if self._registered:
                 for path in self.aggregators:
-                    self._update_aggregator(dbusServiceName, path, self.monitor.get_value(dbusServiceName, path))
-                    self._refresh_value(path)
-
+                    self.aggregators[path].set(dbusServiceName, self.monitor.get_value(dbusServiceName, path))
+                paths_changed = self.aggregators
                 self._batteries_changed()
+
+        if paths_changed:
+            self._refresh_values(paths_changed)
+
 
     def _battery_removed(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery removed: {dbusServiceName}")
+        paths_changed = None
         if dbusServiceName in self._auxiliaryServices.service_names:
             if self._registered:
                 paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
-                self._refresh_values(paths_changed)
         elif dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 paths_changed = self._primaryServices.clear_values(dbusServiceName)
-                self._refresh_values(paths_changed)
         else:
             self.battery_service_names.remove(dbusServiceName)
             if self._registered:
                 for path in self.aggregators:
-                    self._remove_from_aggregator(dbusServiceName, path)
-                    self._refresh_value(path)
-
+                    self.aggregators[path].unset(dbusServiceName)
+                paths_changed = self.aggregators
                 self._batteries_changed()
+
+        if paths_changed:
+            self._refresh_values(paths_changed)
 
     def _batteries_changed(self):
         batteryCount = len(self.battery_service_names)
         self.service["/System/Batteries"] = json.dumps(self.battery_service_names)
         self.service["/System/NrOfBatteries"] = batteryCount
         self.service["/System/BatteriesParallel"] = batteryCount
+
+    def _update_active_values(self, dbusPath):
+        for defn in ACTIVE_BATTERY_PATHS.values():
+            if dbusPath in defn.triggerPaths:
+                defn.action(self)
+
+    def _updateCCL(self):
+        aggr_current = self.aggregators["/Dc/0/Current"]
+        aggr_voltage = self.aggregators["/Dc/0/Voltage"]
+
+        irs = {}  # internal resistances
+        for batteryName, current in aggr_current.values.items():
+            voltage = aggr_voltage.values.get(batteryName, 0)
+            if current is not None and voltage is not None and current > 0:
+                irs[batteryName] = voltage/current
+        total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
+
+        aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
+        battery_count = len(self.battery_service_names)
+        ccls = []
+        for batteryName, ccl in aggr_ccl.values.items():
+            if ccl is not None:
+                ir = irs.get(batteryName, 0)
+                if ir and total_ir:
+                    ccls.append(ccl*ir/total_ir)
+                else:
+                    ccls.append(ccl*battery_count)
+
+        self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else None
+
+    def _updateDCL(self):
+        aggr_current = self.aggregators["/Dc/0/Current"]
+        aggr_voltage = self.aggregators["/Dc/0/Voltage"]
+
+        irs = {}  # internal resistances
+        for batteryName, current in aggr_current.values.items():
+            voltage = aggr_voltage.values.get(batteryName, 0)
+            if current is not None and voltage is not None and current > 0:
+                irs[batteryName] = voltage/current
+        total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
+
+        aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
+        battery_count = len(self.battery_service_names)
+        dcls = []
+        for batteryName, dcl in aggr_dcl.values.items():
+            if dcl is not None:
+                ir = irs.get(batteryName, 0)
+                if ir and total_ir:
+                    dcls.append(dcl*ir/total_ir)
+                else:
+                    dcls.append(dcl*battery_count)
+
+        self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else None
+
+    def _updateCVL(self):
+        aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
+        cvls = []
+        for cvl in aggr_cvl.values.values():
+            if cvl is not None:
+                cvls.append(cvl)
+        if self.service["/Balancing"] == 1:
+            op = max
+        else:
+            op = min
+        self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else None
 
     def __str__(self):
         return self._serviceName
@@ -531,11 +549,8 @@ class VirtualBatteryService(SettableService):
 
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
         # self.logger.info(f"Battery value changed: {dbusServiceName} {dbusPath}")
-        value = changes['Value']
-        self._update_battery_value(dbusServiceName, dbusPath, value)
-
-    def _update_battery_value(self, dbusServiceName, dbusPath, value):
         if self._registered:
+            value = changes['Value']
             self._mergedServices.update_service_value(dbusServiceName, dbusPath, value)
             self.service[dbusPath] = self._mergedServices.get_value(dbusPath)
 

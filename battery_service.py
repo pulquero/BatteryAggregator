@@ -323,18 +323,22 @@ class BatteryAggregatorService(SettableService):
 
         # initial values
         paths_changed = set()
+
         for battery_name in self._primaryServices.service_names:
             if battery_name in self.monitor.servicesByName:
                 changed = self._primaryServices.init_values(battery_name, self.monitor)
                 paths_changed.update(changed)
-        for battery_name in self._primaryServices.service_names:
+
+        for battery_name in self._auxiliaryServices.service_names:
             if battery_name in self.monitor.servicesByName:
                 changed = self._auxiliaryServices.init_values(battery_name, self.monitor)
                 paths_changed.update(changed)
+
         for path in self.aggregators:
             for battery_name in self.battery_service_names:
                 self.aggregators[path].set(battery_name, self.monitor.get_value(battery_name, path))
             paths_changed.add(path)
+
         self._refresh_values(paths_changed)
         self._batteries_changed()
 

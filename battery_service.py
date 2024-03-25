@@ -49,7 +49,7 @@ def dbusConnection():
     return SessionBus() if 'DBUS_SESSION_BUS_ADDRESS' in os.environ else SystemBus()
 
 
-VOLTAGE_TEXT = lambda path,value: "{:.2f}V".format(value)
+VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
 CURRENT_TEXT = lambda path,value: "{:.3f}A".format(value)
 POWER_TEXT = lambda path,value: "{:.2f}W".format(value)
 AH_TEXT = lambda path,value: "{:.3f}Ah".format(value)

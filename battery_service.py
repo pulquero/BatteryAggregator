@@ -275,10 +275,11 @@ class BatteryAggregatorService(SettableService):
             scanPaths.remove('/InstalledCapacity')
             scanPaths.remove('/Capacity')
 
-        self.battery_service_names = []
-
         self._primaryServices = DataMerger(config.get("primaryServices"))
         self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"))
+        otherServiceNames = set()
+        otherServiceNames.update(self._primaryServices.service_names)
+        otherServiceNames.update(self._auxiliaryServices.service_names)
 
         excludedServices = [serviceName]
         excludedServices.extend(config.get("excludedServices", []))
@@ -296,7 +297,9 @@ class BatteryAggregatorService(SettableService):
             deviceRemovedCallback=self._battery_removed,
             excludedServiceNames=excludedServices
         )
-        self.battery_service_names = list(self.monitor.servicesByName)
+
+        
+        self.battery_service_names = [service_name for service_name in self.monitor.servicesByName if service_name not in otherServiceNames]
 
         self.aggregators = {}
         for path in scanPaths:
@@ -371,12 +374,12 @@ class BatteryAggregatorService(SettableService):
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
         # self.logger.info(f"Battery value changed: {dbusServiceName} {dbusPath}")
         value = changes['Value']
-        if dbusServiceName in self._auxiliaryServices.service_names:
-            if self._registered:
-                self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
-        elif dbusServiceName in self._primaryServices.service_names:
+        if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 self._primaryServices.update_service_value(dbusServiceName, dbusPath, value)
+        elif dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
         else:
             if self._registered:
                 self.aggregators[dbusPath].set(dbusServiceName, value)
@@ -387,12 +390,12 @@ class BatteryAggregatorService(SettableService):
     def _battery_added(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery added: {dbusServiceName}")
         paths_changed = None
-        if dbusServiceName in self._auxiliaryServices.service_names:
-            if self._registered:
-                paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
-        elif dbusServiceName in self._primaryServices.service_names:
+        if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 paths_changed = self._primaryServices.init_values(dbusServiceName, self.monitor)
+        elif dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
         else:
             self.battery_service_names.append(dbusServiceName)
             if self._registered:
@@ -408,12 +411,12 @@ class BatteryAggregatorService(SettableService):
     def _battery_removed(self, dbusServiceName, deviceInstance):
         # self.logger.info(f"Battery removed: {dbusServiceName}")
         paths_changed = None
-        if dbusServiceName in self._auxiliaryServices.service_names:
-            if self._registered:
-                paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
-        elif dbusServiceName in self._primaryServices.service_names:
+        if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 paths_changed = self._primaryServices.clear_values(dbusServiceName)
+        elif dbusServiceName in self._auxiliaryServices.service_names:
+            if self._registered:
+                paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
         else:
             self.battery_service_names.remove(dbusServiceName)
             if self._registered:

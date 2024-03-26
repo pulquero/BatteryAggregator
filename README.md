@@ -69,7 +69,7 @@ note, empty array `[]` means include all paths)
 ### Aggregate all available batteries with SoC info provided by a shunt taking precedence
 
 	{
-		"primaryServices": {"com.victronenergy.battery.ttyS5": ["/SoC"]}
+		"primaryServices": {"com.victronenergy.battery.ttyS5": ["/Soc"]}
 	}
 
 ### Create two virtual batteries from two BMSes, each in series with a shunt, and aggregate them

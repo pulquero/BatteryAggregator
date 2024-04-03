@@ -439,20 +439,24 @@ class BatteryAggregatorService(SettableService):
             if dbusPath in defn.triggerPaths:
                 defn.action(self)
 
-    def _updateCCL(self):
+    def _get_irs(self, batteries):
         aggr_current = self.aggregators["/Dc/0/Current"]
         aggr_voltage = self.aggregators["/Dc/0/Voltage"]
-        aggr_allow = self.aggregators["/Io/AllowToCharge"]
-
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
 
         irs = {}  # internal resistances
-        for batteryName in connectedBatteries:
+        for batteryName in batteries:
             current = aggr_current.values.get(batteryName, 0)
             voltage = aggr_voltage.values.get(batteryName, 0)
             if current and voltage:
-                irs[batteryName] = voltage/current
+                irs[batteryName] = abs(voltage/current)
         total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
+        return irs, total_ir
+
+    def _updateCCL(self):
+        aggr_allow = self.aggregators["/Io/AllowToCharge"]
+
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
+        irs, total_ir = self._get_irs(connectedBatteries)
 
         aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
         battery_count = len(connectedBatteries)
@@ -470,19 +474,10 @@ class BatteryAggregatorService(SettableService):
         self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else 0
 
     def _updateDCL(self):
-        aggr_current = self.aggregators["/Dc/0/Current"]
-        aggr_voltage = self.aggregators["/Dc/0/Voltage"]
         aggr_allow = self.aggregators["/Io/AllowToDischarge"]
 
         connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
-
-        irs = {}  # internal resistances
-        for batteryName in connectedBatteries:
-            current = aggr_current.values.get(batteryName, 0)
-            voltage = aggr_voltage.values.get(batteryName, 0)
-            if current and voltage:
-                irs[batteryName] = voltage/current
-        total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
+        irs, total_ir = self._get_irs(connectedBatteries)
 
         aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
         battery_count = len(connectedBatteries)

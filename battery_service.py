@@ -191,9 +191,9 @@ AGGREGATED_BATTERY_PATHS = {
 }
 
 ACTIVE_BATTERY_PATHS = {
-    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage'}, action=lambda api: api._updateCCL()),
-    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
-    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage'}, action=lambda api: api._updateDCL()),
+    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
+    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing', '/Io/AllowToBalance'}, action=lambda api: api._updateCVL()),
+    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),
 }
 
 BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
@@ -442,62 +442,82 @@ class BatteryAggregatorService(SettableService):
     def _updateCCL(self):
         aggr_current = self.aggregators["/Dc/0/Current"]
         aggr_voltage = self.aggregators["/Dc/0/Voltage"]
+        aggr_allow = self.aggregators["/Io/AllowToCharge"]
+
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
 
         irs = {}  # internal resistances
-        for batteryName, current in aggr_current.values.items():
+        for batteryName in connectedBatteries:
+            current = aggr_current.values.get(batteryName, 0)
             voltage = aggr_voltage.values.get(batteryName, 0)
-            if current is not None and voltage is not None and current > 0:
+            if current and voltage:
                 irs[batteryName] = voltage/current
         total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
 
         aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
-        battery_count = len(self.battery_service_names)
+        battery_count = len(connectedBatteries)
         ccls = []
-        for batteryName, ccl in aggr_ccl.values.items():
-            if ccl is not None:
+        for batteryName in connectedBatteries:
+            ccl = aggr_ccl.values.get(batteryName, 0)
+            if ccl:
                 ir = irs.get(batteryName, 0)
                 if ir and total_ir:
                     ccls.append(ccl*ir/total_ir)
                 else:
+                    # assume internal resistance is the same for all batteries
                     ccls.append(ccl*battery_count)
 
-        self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else None
+        self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else 0
 
     def _updateDCL(self):
         aggr_current = self.aggregators["/Dc/0/Current"]
         aggr_voltage = self.aggregators["/Dc/0/Voltage"]
+        aggr_allow = self.aggregators["/Io/AllowToDischarge"]
+
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
 
         irs = {}  # internal resistances
-        for batteryName, current in aggr_current.values.items():
+        for batteryName in connectedBatteries:
+            current = aggr_current.values.get(batteryName, 0)
             voltage = aggr_voltage.values.get(batteryName, 0)
-            if current is not None and voltage is not None and current > 0:
+            if current and voltage:
                 irs[batteryName] = voltage/current
         total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
 
         aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
-        battery_count = len(self.battery_service_names)
+        battery_count = len(connectedBatteries)
         dcls = []
-        for batteryName, dcl in aggr_dcl.values.items():
-            if dcl is not None:
+        for batteryName in connectedBatteries:
+            dcl = aggr_dcl.values.get(batteryName, 0)
+            if dcl:
                 ir = irs.get(batteryName, 0)
                 if ir and total_ir:
                     dcls.append(dcl*ir/total_ir)
                 else:
+                    # assume internal resistance is the same for all batteries
                     dcls.append(dcl*battery_count)
 
-        self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else None
+        self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else 0
 
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
-        cvls = []
-        for cvl in aggr_cvl.values.values():
-            if cvl is not None:
-                cvls.append(cvl)
+
         if self.service["/Balancing"] == 1:
             op = max
+            aggr_allow = self.aggregators["/Io/AllowToBalance"]
         else:
             op = min
-        self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else None
+            aggr_allow = self.aggregators["/Io/AllowToCharge"]
+
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
+
+        cvls = []
+        for batteryName in connectedBatteries:
+            cvl = aggr_cvl.values.get(batteryName, 0)
+            if cvl:
+                cvls.append(cvl)
+
+        self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else 0
 
     def __str__(self):
         return self._serviceName

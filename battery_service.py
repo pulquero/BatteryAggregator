@@ -192,7 +192,7 @@ AGGREGATED_BATTERY_PATHS = {
 
 ACTIVE_BATTERY_PATHS = {
     '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
-    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing', '/Io/AllowToBalance'}, action=lambda api: api._updateCVL()),
+    '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
     '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),
 }
 
@@ -499,20 +499,15 @@ class BatteryAggregatorService(SettableService):
 
         if self.service["/Balancing"] == 1:
             op = max
-            aggr_allow = self.aggregators["/Io/AllowToBalance"]
         else:
             op = min
-            aggr_allow = self.aggregators["/Io/AllowToCharge"]
-
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
 
         cvls = []
-        for batteryName in connectedBatteries:
-            cvl = aggr_cvl.values.get(batteryName, 0)
+        for cvl in aggr_cvl.values.values():
             if cvl:
                 cvls.append(cvl)
 
-        self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else 0
+        self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else None
 
     def __str__(self):
         return self._serviceName

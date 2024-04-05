@@ -13,6 +13,8 @@ from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 from settingsdevice import SettingsDevice
 from settableservice import SettableService
+from collections import deque, namedtuple
+import math
 import functools
 import hashlib
 import json
@@ -31,6 +33,10 @@ BASE_DEVICE_INSTANCE_ID = DEVICE_INSTANCE_ID + 32
 ALARM_OK = 0
 ALARM_WARNING = 1
 ALARM_ALARM = 2
+
+VOLTAGE_HISTORY_SIZE = 10
+MIN_VOLTAGE_DELTA = 0.02
+MAX_IR_ERROR = 0.1
 
 logging.basicConfig(level=logging.INFO)
 
@@ -191,9 +197,9 @@ AGGREGATED_BATTERY_PATHS = {
 }
 
 ACTIVE_BATTERY_PATHS = {
-    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
+    '/Info/MaxChargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeCurrent', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
     '/Info/MaxChargeVoltage': PathDefinition(VOLTAGE, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
-    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Dc/0/Current', '/Dc/0/Voltage', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),
+    '/Info/MaxDischargeCurrent': PathDefinition(CURRENT, aggregatorClass=NullAggregator, triggerPaths={'/Info/MaxDischargeCurrent', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),
 }
 
 BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
@@ -258,6 +264,56 @@ class DataMerger:
         return None
 
 
+VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
+
+
+class IRData:
+    def __init__(self):
+        self.value = None
+        self.history = deque()
+
+    def append_sample(self, voltage, current):
+        # must be discharging
+        if current >= 0:
+            return False
+
+        if voltage <= 0:
+            return False
+
+        if not self.history or abs(voltage - self.history[-1].voltage) >= MIN_VOLTAGE_DELTA:  # check for a significant change in voltage
+            self.history.append(VoltageSample(voltage, current))
+            if len(self.history) > VOLTAGE_HISTORY_SIZE:
+                self.history.popleft()
+
+                # total least squares
+                N = len(self.history)
+                sum_v = 0
+                sum_i = 0
+                for sample in self.history:
+                    sum_v += sample.voltage
+                    sum_i += sample.current
+                mean_v = sum_v/N
+                mean_i = sum_i/N
+
+                var_v = 0
+                var_i = 0
+                var_iv = 0
+                for sample in self.history:
+                    var_v += (sample.voltage - mean_v)**2
+                    var_i += (sample.current - mean_i)**2
+                    var_iv += 2 * (sample.voltage - mean_v) * (sample.current - mean_i)
+                k = var_v - var_i
+
+                ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
+                err_ir = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
+
+                if ir > 0 and err_ir <= MAX_IR_ERROR:
+                    self.value = ir
+                    return True
+
+        return False
+
+
 class BatteryAggregatorService(SettableService):
     def __init__(self, conn, serviceName, config):
         super().__init__()
@@ -270,6 +326,9 @@ class BatteryAggregatorService(SettableService):
         self._conn = conn
         self._serviceName = serviceName
         self._configuredCapacity = config.get("capacity")
+
+        self._irs = {}
+
         scanPaths = set(BATTERY_PATHS.keys())
         if self._configuredCapacity:
             scanPaths.remove('/InstalledCapacity')
@@ -318,6 +377,7 @@ class BatteryAggregatorService(SettableService):
             self.service['/InstalledCapacity'] = self._configuredCapacity
             self.service['/Capacity'] = None
         self.service.add_path("/System/Batteries", None)
+        self.service.add_path("/System/InternalResistances", None)
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
@@ -342,10 +402,26 @@ class BatteryAggregatorService(SettableService):
                 self.aggregators[path].set(battery_name, self.monitor.get_value(battery_name, path))
             paths_changed.add(path)
 
-        self._refresh_values(paths_changed)
+        for battery_name in self.battery_service_names:
+            self._irs[battery_name] = IRData()
+
         self._batteries_changed()
+        self._refresh_values(paths_changed)
 
         self._registered = True
+
+    def _add_vi_sample(self, dbusServiceName, voltage, current):
+        irdata = self._irs[dbusServiceName]
+        if irdata.append_sample(voltage, current):
+            self._refresh_internal_resistances()
+
+    def _refresh_internal_resistances(self):
+        irs = []
+        for batteryName in self.battery_service_names:
+            irdata = self._irs[batteryName]
+            ir = irdata.value if irdata else None
+            irs.append(ir)
+        self.service["/System/InternalResistances"] = json.dumps(irs)
 
     def _get_value(self, dbusPath):
         aggr = self.aggregators.get(dbusPath)
@@ -383,6 +459,10 @@ class BatteryAggregatorService(SettableService):
         else:
             if self._registered:
                 self.aggregators[dbusPath].set(dbusServiceName, value)
+                if dbusPath == "/Dc/0/Voltage":
+                    voltage = value
+                    current = self.monitor.get_value(dbusServiceName, "/Dc/0/Current")
+                    self._add_vi_sample(dbusServiceName, voltage, current)
 
         if self._registered:
             self._refresh_value(dbusPath)
@@ -398,6 +478,7 @@ class BatteryAggregatorService(SettableService):
                 paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
         else:
             self.battery_service_names.append(dbusServiceName)
+            self._irs[dbusServiceName] = IRData()
             if self._registered:
                 for path in self.aggregators:
                     self.aggregators[path].set(dbusServiceName, self.monitor.get_value(dbusServiceName, path))
@@ -419,6 +500,7 @@ class BatteryAggregatorService(SettableService):
                 paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
         else:
             self.battery_service_names.remove(dbusServiceName)
+            del self._irs[dbusServiceName]
             if self._registered:
                 for path in self.aggregators:
                     self.aggregators[path].unset(dbusServiceName)
@@ -433,43 +515,61 @@ class BatteryAggregatorService(SettableService):
         self.service["/System/Batteries"] = json.dumps(self.battery_service_names)
         self.service["/System/NrOfBatteries"] = batteryCount
         self.service["/System/BatteriesParallel"] = batteryCount
+        self._refresh_internal_resistances()
 
     def _update_active_values(self, dbusPath):
         for defn in ACTIVE_BATTERY_PATHS.values():
             if dbusPath in defn.triggerPaths:
                 defn.action(self)
 
-    def _get_irs(self, batteries):
-        aggr_current = self.aggregators["/Dc/0/Current"]
-        aggr_voltage = self.aggregators["/Dc/0/Voltage"]
-
-        irs = {}  # internal resistances
+    def _get_total_ir(self, batteries):
+        sum_ir_recip = 0
         for batteryName in batteries:
-            current = aggr_current.values.get(batteryName, 0)
-            voltage = aggr_voltage.values.get(batteryName, 0)
-            if current and voltage:
-                irs[batteryName] = abs(voltage/current)
-        total_ir = 1.0/sum([1.0/ir for ir in irs.values()]) if irs else 0
-        return irs, total_ir
+            irdata = self._irs[batteryName]
+            if irdata and irdata.value:
+                sum_ir_recip += 1/irdata.value
+            else:
+                # missing IR - can't compute total IR
+                return None
+
+        return 1.0/sum_ir_recip if sum_ir_recip else None
+
+    def _get_current_proportions(self, connectedBatteries):
+        total_ir = self._get_total_ir(connectedBatteries)
+        aggr_cap = self.aggregators["/InstalledCapacity"]
+        total_cap = self.service["/InstalledCapacity"]
+        batteryCount = len(connectedBatteries)
+
+        proportions = []
+        for batteryName in connectedBatteries:
+            irdata = self._irs.get(batteryName)
+            if irdata and irdata.value and total_ir:
+                proportion = irdata.value/total_ir
+            else:
+                cap = aggr_cap.values.get(batteryName)
+                if cap and total_cap:
+                    # assume internal resistance is inversely proportional to capacity
+                    proportion = total_cap/cap
+                else:
+                    # assume internal resistance is the same for all batteries
+                    proportion = batteryCount
+            proportions.append(proportion)
+
+        return proportions
 
     def _updateCCL(self):
         aggr_allow = self.aggregators["/Io/AllowToCharge"]
 
         connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
-        irs, total_ir = self._get_irs(connectedBatteries)
+        currentProportions = self._get_current_proportions(connectedBatteries)
 
         aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
-        battery_count = len(connectedBatteries)
         ccls = []
-        for batteryName in connectedBatteries:
-            ccl = aggr_ccl.values.get(batteryName, 0)
+        for i, batteryName in enumerate(connectedBatteries):
+            ccl = aggr_ccl.values.get(batteryName)
             if ccl:
-                ir = irs.get(batteryName, 0)
-                if ir and total_ir:
-                    ccls.append(ccl*ir/total_ir)
-                else:
-                    # assume internal resistance is the same for all batteries
-                    ccls.append(ccl*battery_count)
+                proportion = currentProportions[i]
+                ccls.append(ccl*proportion)
 
         self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else 0
 
@@ -477,20 +577,15 @@ class BatteryAggregatorService(SettableService):
         aggr_allow = self.aggregators["/Io/AllowToDischarge"]
 
         connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
-        irs, total_ir = self._get_irs(connectedBatteries)
+        currentProportions = self._get_current_proportions(connectedBatteries)
 
         aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
-        battery_count = len(connectedBatteries)
         dcls = []
-        for batteryName in connectedBatteries:
-            dcl = aggr_dcl.values.get(batteryName, 0)
+        for i, batteryName in enumerate(connectedBatteries):
+            dcl = aggr_dcl.values.get(batteryName)
             if dcl:
-                ir = irs.get(batteryName, 0)
-                if ir and total_ir:
-                    dcls.append(dcl*ir/total_ir)
-                else:
-                    # assume internal resistance is the same for all batteries
-                    dcls.append(dcl*battery_count)
+                proportion = currentProportions[i]
+                dcls.append(dcl*proportion)
 
         self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else 0
 
@@ -621,10 +716,11 @@ def main(virtualBatteryName=None):
 
         def kill_handler(signum, frame):
             for p in processes:
-                p.terminate()
-                p.join()
-                p.close()
-                logger.info(f"Stopped child process {p.name}")
+                if p.is_alive():
+                    p.terminate()
+                    p.join()
+                    p.close()
+                    logger.info(f"Stopped child process {p.name}")
             logger.info("Exit")
             exit(0)
 

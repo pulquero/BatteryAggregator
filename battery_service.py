@@ -303,15 +303,17 @@ class IRData:
                     var_v += (sample.voltage - mean_v)**2
                     var_i += (sample.current - mean_i)**2
                     var_iv += 2 * (sample.voltage - mean_v) * (sample.current - mean_i)
-                k = var_v - var_i
 
-                ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
-                err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
+                if var_iv:
+                    k = var_v - var_i
 
-                if ir > 0 and err <= MAX_IR_ERROR:
-                    self.value = ir
-                    self.err = err
-                    return True
+                    ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
+                    err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
+
+                    if ir > 0 and err <= MAX_IR_ERROR:
+                        self.value = ir
+                        self.err = err
+                        return True
 
         return False
 

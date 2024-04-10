@@ -1,7 +1,7 @@
 
 # About
 
-A battery monitor DBus service that aggregates the data for multiple batteries (currently, only parallel supported).
+A battery monitor D-Bus service that aggregates the data for multiple batteries (currently, only parallel supported).
 
 
 # Install
@@ -31,7 +31,7 @@ To pre-merge information from other services, add:
 
 		"auxiliaryServices": ["com.victronenergy.battery.defaultMetadata", "com.victronenergy.battery.leastPrecedence"]
 
-(or use the more advanced syntax if interested in specific DBus paths:
+(or use the more advanced syntax if interested in specific D-Bus paths:
 
 		"auxiliaryServices": {"com.victronenergy.battery.dev1": ["/Info/Location"]}
 
@@ -86,6 +86,8 @@ note, empty array `[]` means include all paths)
 Check the log:
 
 	cat /var/log/BatteryAggregator/current
+
+Debug logging can be enable by setting the D-Bus path `/LogLevel` to `INFO`.
 
 Restart the service:
 

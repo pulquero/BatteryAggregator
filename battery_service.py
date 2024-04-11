@@ -404,7 +404,8 @@ class BatteryAggregatorService(SettableService):
 
         for path in self.aggregators:
             for battery_name in self.battery_service_names:
-                self.aggregators[path].set(battery_name, self.monitor.get_value(battery_name, path))
+                value = self.monitor.get_value(battery_name, path)
+                self._set_aggregator_value(path, battery_name, value)
             paths_changed.add(path)
 
         for battery_name in self.battery_service_names:
@@ -421,6 +422,12 @@ class BatteryAggregatorService(SettableService):
             return True
         else:
             return False
+
+    def _set_aggregator_value(self, dbusPath, dbusServiceName, value):
+        aggr = self.aggregators[dbusPath]
+        aggr.set(dbusServiceName, value)
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Aggregator for {dbusPath} updated with {{{dbusServiceName}: {value}}} now has values {aggr.values} with result {aggr.get_result()}")
 
     def _add_vi_sample(self, dbusServiceName, voltage, current):
         irdata = self._irs[dbusServiceName]
@@ -471,11 +478,7 @@ class BatteryAggregatorService(SettableService):
                 self._auxiliaryServices.update_service_value(dbusServiceName, dbusPath, value)
         else:
             if self._registered:
-                aggr = self.aggregators[dbusPath]
-                aggr.set(dbusServiceName, value)
-                if self.logger.isEnabledFor(logging.DEBUG):
-                    self.logger.debug(f"Aggregator for {dbusPath} updated with {{{dbusServiceName}: {value}}} now has values {aggr.values} with result {aggr.get_result()}")
-
+                self._set_aggregator_value(dbusPath, dbusServiceName, value)
                 if dbusPath == "/Dc/0/Voltage":
                     voltage = value
                     current = self.monitor.get_value(dbusServiceName, "/Dc/0/Current")

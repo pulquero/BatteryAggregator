@@ -58,6 +58,11 @@ To create a virtual battery by merging two (or more) other batteries, add:
 
 note, empty array `[]` means include all paths)
 
+To change the log level to debug, add:
+
+		"logLevel": "DEBUG"
+
+
 ## Examples
 
 ### Exclude a shunt from aggregation

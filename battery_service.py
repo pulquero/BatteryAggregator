@@ -592,11 +592,12 @@ class BatteryAggregatorService(SettableService):
         ccls = []
         for i, batteryName in enumerate(connectedBatteries):
             ccl = aggr_ccl.values.get(batteryName)
-            if ccl:
+            if ccl is not None:
                 ccls.append(ccl*currentRatios[i][0])
 
         self.logger.debug(f"CCL estimates: {ccls}")
-        self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else 0
+        # return 0 if disabled or None if not available
+        self.service["/Info/MaxChargeCurrent"] = min(ccls) if ccls else None
 
     def _updateDCL(self):
         aggr_allow = self.aggregators["/Io/AllowToDischarge"]
@@ -610,11 +611,12 @@ class BatteryAggregatorService(SettableService):
         dcls = []
         for i, batteryName in enumerate(connectedBatteries):
             dcl = aggr_dcl.values.get(batteryName)
-            if dcl:
+            if dcl is not None:
                 dcls.append(dcl*currentRatios[i][0])
 
         self.logger.debug(f"DCL estimates: {dcls}")
-        self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else 0
+        # return 0 if disabled or None if not available
+        self.service["/Info/MaxDischargeCurrent"] = min(dcls) if dcls else None
 
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
@@ -626,7 +628,7 @@ class BatteryAggregatorService(SettableService):
 
         cvls = []
         for cvl in aggr_cvl.values.values():
-            if cvl:
+            if cvl is not None:
                 cvls.append(cvl)
 
         self.service["/Info/MaxChargeVoltage"] = op(cvls) if cvls else None

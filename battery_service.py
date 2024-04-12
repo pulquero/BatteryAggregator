@@ -583,7 +583,7 @@ class BatteryAggregatorService(SettableService):
     def _updateCCL(self):
         aggr_allow = self.aggregators["/Io/AllowToCharge"]
 
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
         self.logger.debug(f"Charging batteries: {connectedBatteries}")
         currentRatios = self._get_current_ratios(connectedBatteries)
         self.logger.debug(f"Current ratios: {currentRatios}")
@@ -602,7 +602,7 @@ class BatteryAggregatorService(SettableService):
     def _updateDCL(self):
         aggr_allow = self.aggregators["/Io/AllowToDischarge"]
 
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow]
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
         self.logger.debug(f"Discharging batteries: {connectedBatteries}")
         currentRatios = self._get_current_ratios(connectedBatteries)
         self.logger.debug(f"Current ratios: {currentRatios}")

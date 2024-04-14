@@ -379,8 +379,7 @@ class BatteryAggregatorService(SettableService):
             defn = BATTERY_PATHS[path]
             self.service.add_path(path, aggr.initial_value, gettextcallback=defn.unit.gettextcallback)
         if self._configuredCapacity:
-            self.service['/InstalledCapacity'] = self._configuredCapacity
-            self.service['/Capacity'] = None
+            self.service.add_path("/InstalledCapacity", self._configuredCapacity, AMP_HOURS.gettextcallback)
         self.service.add_path("/System/Batteries", None)
         self.service.add_path("/System/InternalResistances", None)
         self.service.add_path("/System/NrOfBatteries", 0)
@@ -556,7 +555,7 @@ class BatteryAggregatorService(SettableService):
 
     def _get_current_ratios(self, connectedBatteries):
         total_ir = self._get_total_ir(connectedBatteries)
-        aggr_cap = self.aggregators["/InstalledCapacity"]
+        aggr_cap = self.aggregators.get("/InstalledCapacity")
         total_cap = self.service["/InstalledCapacity"]
         batteryCount = len(connectedBatteries)
 
@@ -567,7 +566,7 @@ class BatteryAggregatorService(SettableService):
                 ratio = irdata.value/total_ir
                 method = "ir"
             else:
-                cap = aggr_cap.values.get(batteryName)
+                cap = aggr_cap.values.get(batteryName) if aggr_cap else None
                 if cap and total_cap:
                     # assume internal resistance is inversely proportional to capacity
                     ratio = total_cap/cap

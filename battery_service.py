@@ -330,6 +330,7 @@ class BatteryAggregatorService(SettableService):
         self._conn = conn
         self._serviceName = serviceName
         self._configuredCapacity = config.get("capacity")
+        self._cvlMode = config.get("cvlMode", "max_when_balancing")
 
         self._irs = {}
 
@@ -621,7 +622,7 @@ class BatteryAggregatorService(SettableService):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
 
         if self.service["/Balancing"] == 1:
-            op = max
+            op = max if self._cvlMode == "max_when_balancing" else min
         else:
             op = min
 

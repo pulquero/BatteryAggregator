@@ -330,7 +330,9 @@ class BatteryAggregatorService(SettableService):
         self._conn = conn
         self._serviceName = serviceName
         self._configuredCapacity = config.get("capacity")
+
         self._cvlMode = config.get("cvlMode", "max_when_balancing")
+        self._currentRatioMethod = config.get("currentRatioMethod", "ir")
 
         self._irs = {}
 
@@ -562,20 +564,27 @@ class BatteryAggregatorService(SettableService):
 
         ratios = []
         for batteryName in connectedBatteries:
-            irdata = self._irs.get(batteryName)
-            if irdata and irdata.value and total_ir:
-                ratio = irdata.value/total_ir
-                method = "ir"
-            else:
+            method = self._currentRatioMethod
+
+            if method == "ir":
+                irdata = self._irs.get(batteryName)
+                if irdata and irdata.value and total_ir:
+                    ratio = irdata.value/total_ir
+                else:
+                    method = "capacity"
+
+            if method == "capacity":
+                # assume internal resistance is inversely proportional to capacity
                 cap = aggr_cap.values.get(batteryName) if aggr_cap else None
                 if cap and total_cap:
-                    # assume internal resistance is inversely proportional to capacity
                     ratio = total_cap/cap
-                    method = "cap"
                 else:
-                    # assume internal resistance is the same for all batteries
-                    ratio = batteryCount
                     method = "count"
+
+            if method == "count":
+                # assume internal resistance is the same for all batteries
+                ratio = batteryCount
+
             ratios.append((ratio, method))
 
         return ratios

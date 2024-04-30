@@ -497,8 +497,8 @@ class BatteryAggregatorService(SettableService):
                 self._updateCVL()
 
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
-        self.logger.debug(f"Battery value changed: {dbusServiceName} {dbusPath}")
         value = changes['Value']
+        self.logger.debug(f"Battery value changed: {dbusServiceName} {dbusPath} {value}")
         if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
                 self._primaryServices.update_service_value(dbusServiceName, dbusPath, value)

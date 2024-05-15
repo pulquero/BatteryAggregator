@@ -586,7 +586,11 @@ class BatteryAggregatorService(SettableService):
     def _get_current_ratios(self, connectedBatteries):
         total_ir = self._get_total_ir(connectedBatteries)
         aggr_cap = self.aggregators.get("/InstalledCapacity")
-        total_cap = self.service["/InstalledCapacity"]
+        # active total installed capacity
+        total_cap = 0
+        for batteryName in connectedBatteries:
+            total_cap += aggr_cap.values.get(batteryName, 0)
+
         batteryCount = len(connectedBatteries)
 
         ratios = []

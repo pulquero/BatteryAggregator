@@ -132,12 +132,16 @@ class MeanAggregator(AbstractAggregator):
         return _sum/_count if _count > 0 else self.initial_value
 
 
-class NullAggregator(AbstractAggregator):
+class AvailableAggregator(AbstractAggregator):
     def __init__(self):
         super().__init__(initial_value=None)
 
     def get_result(self):
-        return None
+        _count = 0
+        for v in self.values.values():
+            if v is not None:
+                _count += 1
+        return _count
 
 
 SumAggregator = functools.partial(Aggregator, _sum, initial_value=0)
@@ -156,7 +160,7 @@ class PathDefinition:
 
 class ActivePathDefinition(PathDefinition):
     def __init__(self, unit, triggerPaths=None, action=None):
-        super().__init__(unit, NullAggregator)
+        super().__init__(unit, AvailableAggregator)
         self.triggerPaths = triggerPaths
         self.action = action
 
@@ -645,7 +649,8 @@ class BatteryAggregatorService(SettableService):
     
             self.logger.debug(f"CCL estimates: {cclPerBattery}")
             # return 0 if disabled or None if not available
-            ccl = min(cclPerBattery) if cclPerBattery else None
+            available = aggr_ccl.get_result() > 0
+            ccl = min(cclPerBattery) if cclPerBattery else 0 if available else None
 
         self.service["/Info/MaxChargeCurrent"] = ccl
 
@@ -666,7 +671,8 @@ class BatteryAggregatorService(SettableService):
 
         self.logger.debug(f"DCL estimates: {dclPerBattery}")
         # return 0 if disabled or None if not available
-        self.service["/Info/MaxDischargeCurrent"] = min(dclPerBattery) if dclPerBattery else None
+        available = aggr_dcl.get_result() > 0
+        self.service["/Info/MaxDischargeCurrent"] = min(dclPerBattery) if dclPerBattery else 0 if available else None
 
     def _updateCVL(self):
         isDvcc = self._is_dvcc()

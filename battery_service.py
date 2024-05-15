@@ -36,7 +36,7 @@ ALARM_ALARM = 2
 
 VOLTAGE_HISTORY_SIZE = 10
 MIN_VOLTAGE_DELTA = 0.02
-MAX_IR_ERROR = 0.1
+MAX_IR_ERROR_PERCENTAGE = 0.1
 
 logging.basicConfig(level=logging.INFO)
 
@@ -319,7 +319,7 @@ class IRData:
                     ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
                     err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
 
-                    if ir > 0 and err <= MAX_IR_ERROR:
+                    if ir > 0 and err/ir <= MAX_IR_ERROR_PERCENTAGE:
                         self.value = ir
                         self.err = err
                         return True

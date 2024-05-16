@@ -7,4 +7,12 @@ assignees: ''
 
 ---
 
-To provide a debug log, use dbus-spy to change the D-Bus path `/LogLevel` for the BatteryAggregator to `DEBUG`. Log location is `/var/log/BatteryAggregator/current`.
+Please include system details:
+
+Hardware: Cerbo/RPi???
+
+Setup: DVCC?
+
+Please provide output from dbus-spy.
+
+Please attach any relevant logs. Log location is `/var/log/BatteryAggregator/current`.

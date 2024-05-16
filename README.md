@@ -58,6 +58,34 @@ To create a virtual battery by merging two (or more) other batteries, add:
 
 note, empty array `[]` means include all paths)
 
+## Charging parameters
+
+### CCL
+
+There are three ways to calculate the CCL:
+
+"ir" - sample V and I during discharge to determine the individual internal resistances. Best with a good shunt to give good measurements,
+useful with batteries of different capacities and ages. Note: until enough samples have been built up, the second method below is used.
+
+"capacity" - generally, battery capacity is inversely proportional to internal resistance. Useful with batteries of different capacities.
+
+"count" - batteries are assumed to have the same capacity and performance.
+
+For example, to use "capacity", add the following:
+
+		"currentRatioMethod": "capacity"
+
+### CVL
+
+To address various needs the CVL value used during balancing can be adjusted. The default is to use the max of the individual CVLs.
+If you want to use the min, then add the following:
+
+		"cvlMode": "min_when_balancing"
+
+
+
+## Logging
+
 To change the log level to debug, add:
 
 		"logLevel": "DEBUG"

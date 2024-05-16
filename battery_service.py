@@ -452,7 +452,7 @@ class BatteryAggregatorService(SettableService):
     def _add_vi_sample(self, dbusServiceName, voltage, current):
         irdata = self._irs[dbusServiceName]
         if irdata.append_sample(voltage, current):
-            self.logger.debug(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
+            self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
             self._refresh_internal_resistances()
 
     def _refresh_internal_resistances(self):
@@ -628,21 +628,23 @@ class BatteryAggregatorService(SettableService):
         return (self.monitor.get_value("com.victronenergy.system", "/Control/Dvcc", 0) == 1)
 
     def _updateCCL(self):
-        aggr_allow = self.aggregators["/Io/AllowToCharge"]
-
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
-        self.logger.debug(f"Charging batteries: {connectedBatteries}")
-        currentRatios = self._get_current_ratios(connectedBatteries)
-        self.logger.debug(f"Current ratios: {currentRatios}")
-
         aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
+        self.logger.info(f"Individual CCLs: {aggr_ccl.values}")
+
+        aggr_allow = self.aggregators["/Io/AllowToCharge"]
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
+        self.logger.info(f"Connected batteries: {connectedBatteries}")
+
+        currentRatios = self._get_current_ratios(connectedBatteries)
+        self.logger.info(f"Current ratios: {currentRatios}")
+
         cclPerBattery = []
         for i, batteryName in enumerate(connectedBatteries):
             ccl = aggr_ccl.values.get(batteryName)
             if ccl is not None:
                 cclPerBattery.append(ccl*currentRatios[i][0])
 
-        self.logger.debug(f"CCL estimates: {cclPerBattery}")
+        self.logger.info(f"CCL estimates: {cclPerBattery}")
         # return 0 if disabled or None if not available
         if cclPerBattery:
             ccl = min(cclPerBattery)
@@ -660,21 +662,23 @@ class BatteryAggregatorService(SettableService):
         self.service["/Info/MaxChargeCurrent"] = ccl
 
     def _updateDCL(self):
-        aggr_allow = self.aggregators["/Io/AllowToDischarge"]
-
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
-        self.logger.debug(f"Discharging batteries: {connectedBatteries}")
-        currentRatios = self._get_current_ratios(connectedBatteries)
-        self.logger.debug(f"Current ratios: {currentRatios}")
-
         aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
+        self.logger.info(f"Individual DCLs: {aggr_dcl.values}")
+
+        aggr_allow = self.aggregators["/Io/AllowToDischarge"]
+        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
+        self.logger.info(f"Connected batteries: {connectedBatteries}")
+
+        currentRatios = self._get_current_ratios(connectedBatteries)
+        self.logger.info(f"Current ratios: {currentRatios}")
+
         dclPerBattery = []
         for i, batteryName in enumerate(connectedBatteries):
             dcl = aggr_dcl.values.get(batteryName)
             if dcl is not None:
                 dclPerBattery.append(dcl*currentRatios[i][0])
 
-        self.logger.debug(f"DCL estimates: {dclPerBattery}")
+        self.logger.info(f"DCL estimates: {dclPerBattery}")
         # return 0 if disabled or None if not available
         available = aggr_dcl.get_result() > 0
         self.service["/Info/MaxDischargeCurrent"] = min(dclPerBattery) if dclPerBattery else 0 if available else None

@@ -587,13 +587,28 @@ class BatteryAggregatorService(SettableService):
 
         return 1.0/sum_ir_recip if sum_ir_recip else None
 
-    def _get_current_ratios(self, connectedBatteries):
-        total_ir = self._get_total_ir(connectedBatteries)
-        aggr_cap = self.aggregators.get("/InstalledCapacity")
-        # active total installed capacity
-        total_cap = 0
-        for batteryName in connectedBatteries:
-            total_cap += aggr_cap.values.get(batteryName, 0)
+    def _get_current_ratios(self, connectedBatteries, allowSupported):
+        if self._currentRatioMethod == "ir":
+            total_ir = self._get_total_ir(connectedBatteries)
+
+        if self._currentRatioMethod != "count":
+            aggr_cap = self.aggregators.get("/InstalledCapacity")
+            # active total installed capacity
+            # if allow is supported then assume batteries have /InstalledCapacity
+            if allowSupported is not None:
+                total_cap = 0
+                for batteryName in connectedBatteries:
+                    cap = aggr_cap.values.get(batteryName)
+                    if cap is None:
+                        self.logger.warning(f"/InstalledCapacity is not available for {batteryName}")
+                        total_cap = None
+                        break
+                    total_cap += cap
+            else:
+                # connectedBatteries are all batteries
+                total_cap = self.service["/InstalledCapacity"]
+                if total_cap is None:
+                    self.logger.warning("Please set the \"capacity\" option in the config")
 
         batteryCount = len(connectedBatteries)
 
@@ -635,7 +650,7 @@ class BatteryAggregatorService(SettableService):
         connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
         self.logger.info(f"Connected batteries: {connectedBatteries}")
 
-        currentRatios = self._get_current_ratios(connectedBatteries)
+        currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
         self.logger.info(f"Current ratios: {currentRatios}")
 
         cclPerBattery = []
@@ -669,7 +684,7 @@ class BatteryAggregatorService(SettableService):
         connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
         self.logger.info(f"Connected batteries: {connectedBatteries}")
 
-        currentRatios = self._get_current_ratios(connectedBatteries)
+        currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
         self.logger.info(f"Current ratios: {currentRatios}")
 
         dclPerBattery = []

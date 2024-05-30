@@ -55,6 +55,10 @@ def dbusConnection():
     return SessionBus() if 'DBUS_SESSION_BUS_ADDRESS' in os.environ else SystemBus()
 
 
+def is_battery_service_name(service_name):
+    return service_name.startswith("com.victronenergy.battery.")
+
+
 VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
 CURRENT_TEXT = lambda path,value: "{:.3f}A".format(value)
 POWER_TEXT = lambda path,value: "{:.2f}W".format(value)
@@ -330,7 +334,7 @@ class IRData:
 class BatteryAggregatorService(SettableService):
     def __init__(self, conn, serviceName, config):
         super().__init__()
-        if not serviceName.startswith("com.victronenergy.battery."):
+        if not is_battery_service_name(serviceName):
             raise ValueError(f"Invalid service name: {serviceName}")
 
         self.logger = logging.getLogger(serviceName)
@@ -380,7 +384,7 @@ class BatteryAggregatorService(SettableService):
             excludedServiceNames=excludedServices
         )
 
-        self.battery_service_names = [service_name for service_name in self.monitor.servicesByName if service_name not in otherServiceNames]
+        self.battery_service_names = [service_name for service_name in self.monitor.servicesByName if is_battery_service_name(service_name) and service_name not in otherServiceNames]
 
         self.aggregators = {}
         for path in scanPaths:
@@ -488,7 +492,7 @@ class BatteryAggregatorService(SettableService):
             self._refresh_value(path)
 
     def _service_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
-        if dbusServiceName.startswith("com.victronenergy.battery"):
+        if is_battery_service_name(dbusServiceName):
             self._battery_value_changed(dbusServiceName, dbusPath, options, changes, deviceInstance)
         elif dbusServiceName == "com.victronenergy.system":
             if dbusPath == "/Control/Dvcc":
@@ -529,7 +533,7 @@ class BatteryAggregatorService(SettableService):
         elif dbusServiceName in self._auxiliaryServices.service_names:
             if self._registered:
                 paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
-        else:
+        elif is_battery_service_name(dbusServiceName):
             self.battery_service_names.append(dbusServiceName)
             self._irs[dbusServiceName] = IRData()
             if self._registered:
@@ -551,7 +555,7 @@ class BatteryAggregatorService(SettableService):
         elif dbusServiceName in self._auxiliaryServices.service_names:
             if self._registered:
                 paths_changed = self._auxiliaryServices.clear_values(dbusServiceName)
-        else:
+        elif is_battery_service_name(dbusServiceName):
             self.battery_service_names.remove(dbusServiceName)
             del self._irs[dbusServiceName]
             if self._registered:
@@ -736,7 +740,7 @@ class VirtualBatteryService(SettableService):
         self._serviceName = serviceName
 
         for name in [serviceName] + list(config):
-            if not name.startswith("com.victronenergy.battery."):
+            if not is_battery_service_name(name):
                 raise ValueError(f"Invalid service name: {name}")
 
         self._mergedServices = DataMerger(config)

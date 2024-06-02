@@ -20,6 +20,10 @@ extInstall ()
 	fi
 	logMessage "++ Install Python library $project ($branch) from $url into $pythonLibs"
 	wget "$url/archive/refs/heads/$branch.zip" -O "/tmp/$project.zip"
+	if [ $? -ne 0 ]; then
+		logMessage "++ Failed to download $project ($branch) from $url"
+		exit 1
+	fi
 	mkdir -p "/tmp/$project"
 	unzip -oq "/tmp/$project.zip" -d "/tmp/$project"
 	if [ "$repoPath" == "/" ]; then

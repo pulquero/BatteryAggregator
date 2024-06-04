@@ -454,10 +454,11 @@ class BatteryAggregatorService(SettableService):
             self.logger.debug(f"Aggregator for {dbusPath} updated with {{{dbusServiceName}: {value}}} now has values {aggr.values} with result {aggr.get_result()}")
 
     def _add_vi_sample(self, dbusServiceName, voltage, current):
-        irdata = self._irs[dbusServiceName]
-        if irdata.append_sample(voltage, current):
-            self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
-            self._refresh_internal_resistances()
+        if voltage is not None and current is not None:
+            irdata = self._irs[dbusServiceName]
+            if irdata.append_sample(voltage, current):
+                self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
+                self._refresh_internal_resistances()
 
     def _refresh_internal_resistances(self):
         irs = []

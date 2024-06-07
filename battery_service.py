@@ -105,6 +105,19 @@ class AbstractAggregator:
     def unset(self, name):
         del self.values[name]
 
+    def has_values(self):
+        for v in self.values.values():
+            if v is not None:
+                return True
+        return False
+
+    def get_value_count(self):
+        _count = 0
+        for v in self.values.values():
+            if v is not None:
+                _count += 1
+        return _count
+
     def get_result(self):
         ...
 
@@ -141,11 +154,7 @@ class AvailableAggregator(AbstractAggregator):
         super().__init__(initial_value=None)
 
     def get_result(self):
-        _count = 0
-        for v in self.values.values():
-            if v is not None:
-                _count += 1
-        return _count
+        return self.get_value_count()
 
 
 SumAggregator = functools.partial(Aggregator, _sum, initial_value=0)
@@ -476,7 +485,7 @@ class BatteryAggregatorService(SettableService):
                 v = aggr.get_result()
             else:
                 v = self.service[dbusPath]
-            if v is None or (aggr is not None and not aggr.values):
+            if v is None or (aggr is not None and not aggr.has_values()):
                 aux_v = self._auxiliaryServices.get_value(dbusPath)
                 if aux_v is not None:
                     v = aux_v

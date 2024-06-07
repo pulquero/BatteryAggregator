@@ -468,19 +468,18 @@ class BatteryAggregatorService(SettableService):
             irs.append(ir)
         self.service["/System/InternalResistances"] = json.dumps(irs)
 
-    def _get_value(self, dbusPath):
-        aggr = self.aggregators.get(dbusPath)
-        if aggr:
-            return aggr.get_result()
-        else:
-            return self.service[dbusPath]
-
     def _refresh_value(self, dbusPath):
         v = self._primaryServices.get_value(dbusPath)
         if v is None:
-            v = self._get_value(dbusPath)
-            if v is None:
-                v = self._auxiliaryServices.get_value(dbusPath)
+            aggr = self.aggregators.get(dbusPath)
+            if aggr:
+                v = aggr.get_result()
+            else:
+                v = self.service[dbusPath]
+            if v is None or (aggr is not None and not aggr.values):
+                aux_v = self._auxiliaryServices.get_value(dbusPath)
+                if aux_v is not None:
+                    v = aux_v
 
         # don't bother updating active paths yet
         if dbusPath not in ACTIVE_BATTERY_PATHS:

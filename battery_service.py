@@ -705,8 +705,10 @@ class BatteryAggregatorService(SettableService):
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
 
-        if self.service["/Balancing"] == 1:
-            op = max if self._cvlMode == "max_when_balancing" else min
+        if self._cvlMode == "max_always":
+            op = max
+        elif self._cvlMode == "max_when_balancing":
+            op = max if self.service["/Balancing"] == 1 else min
         else:
             op = min
 

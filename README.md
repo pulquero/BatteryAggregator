@@ -82,6 +82,9 @@ If you want to use the min, then add the following:
 
 		"cvlMode": "min_when_balancing"
 
+If you want to use the max always, then add the following:
+
+		"cvlMode": "max_always"
 
 
 ## Logging

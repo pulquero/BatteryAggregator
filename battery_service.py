@@ -298,10 +298,10 @@ class IRData:
     def append_sample(self, voltage, current):
         # must be discharging
         if current >= 0:
-            return False
+            return False, False
 
         if voltage <= 0:
-            return False
+            return False, False
 
         if not self.history or abs(voltage - self.history[-1].voltage) >= MIN_VOLTAGE_DELTA:  # check for a significant change in voltage
             self.history.append(VoltageSample(voltage, current))
@@ -333,11 +333,12 @@ class IRData:
                     err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
 
                     if ir > 0 and err/ir <= MAX_IR_ERROR_PERCENTAGE:
+                        has_changed = abs(ir - self.value) > math.hypot(err, self.err)
                         self.value = ir
                         self.err = err
-                        return True
+                        return True, has_changed
 
-        return False
+        return False, False
 
 
 class BatteryAggregatorService(SettableService):
@@ -465,9 +466,12 @@ class BatteryAggregatorService(SettableService):
     def _add_vi_sample(self, dbusServiceName, voltage, current):
         if voltage is not None and current is not None:
             irdata = self._irs[dbusServiceName]
-            if irdata.append_sample(voltage, current):
+            updated, changed = irdata.append_sample(voltage, current)
+            if updated:
                 self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
                 self._refresh_internal_resistances()
+                if changed:
+                    self._updateCLs()
 
     def _refresh_internal_resistances(self):
         irs = []
@@ -582,6 +586,7 @@ class BatteryAggregatorService(SettableService):
         self.service["/System/NrOfBatteries"] = batteryCount
         self.service["/System/BatteriesParallel"] = batteryCount
         self._refresh_internal_resistances()
+        self._updateCLs()
 
     def _update_active_values(self, dbusPath):
         for defn in ACTIVE_BATTERY_PATHS.values():
@@ -710,6 +715,10 @@ class BatteryAggregatorService(SettableService):
         # return 0 if disabled or None if not available
         available = aggr_dcl.get_result() > 0
         self.service["/Info/MaxDischargeCurrent"] = min(dclPerBattery) if dclPerBattery else 0 if available else None
+
+    def _updateCLs(self):
+        self._updateCCL()
+        self._updateDCL()
 
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]

@@ -77,14 +77,19 @@ For example, to use "capacity", add the following:
 
 ### CVL
 
-To address various needs the CVL value used during balancing can be adjusted. The default is to use the max of the individual CVLs.
-If you want to use the min, then add the following:
+There are four ways to calculate the CVL:
+
+"max_when_balancing" (default) - use the min value of all the batteries, but when balancing use the max.
+
+"min_when_balancing" - always use the min value of all the batteries.
+
+"max_always" - always use the max value of all the batteries.
+
+"dvcc" - track the DVCC value (`com.victronenergy.settings/Settings/SystemSetup/MaxChargeVoltage`).
+
+For example, to use "min_when_balancing", add the following:
 
 		"cvlMode": "min_when_balancing"
-
-If you want to use the max always, then add the following:
-
-		"cvlMode": "max_always"
 
 
 ## Logging

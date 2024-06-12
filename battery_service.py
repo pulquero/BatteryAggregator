@@ -727,22 +727,26 @@ class BatteryAggregatorService(SettableService):
             op = max
         elif self._cvlMode == "max_when_balancing":
             op = max if self.service["/Balancing"] == 1 else min
+        elif self._cvlMode == "dvcc":
+            op = None
+            cvl = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
         else:
             op = min
 
-        cvlPerBattery = []
-        for cvl in aggr_cvl.values.values():
-            if cvl is not None:
-                cvlPerBattery.append(cvl)
-
-        if cvlPerBattery:
-            cvl = op(cvlPerBattery)
-            if self._is_dvcc():
-                user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
-                if user_limit > 0:
-                    cvl = min(cvl, user_limit)
-        else:
-            cvl = None
+        if op is not None:
+            cvlPerBattery = []
+            for cvl in aggr_cvl.values.values():
+                if cvl is not None:
+                    cvlPerBattery.append(cvl)
+    
+            if cvlPerBattery:
+                cvl = op(cvlPerBattery)
+                if self._is_dvcc():
+                    user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
+                    if user_limit > 0:
+                        cvl = min(cvl, user_limit)
+            else:
+                cvl = None
 
         self.service["/Info/MaxChargeVoltage"] = cvl
 

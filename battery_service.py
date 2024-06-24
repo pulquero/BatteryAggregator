@@ -182,7 +182,7 @@ AGGREGATED_BATTERY_PATHS = {
     '/Dc/0/Current': PathDefinition(CURRENT, SumAggregator),
     '/Dc/0/Voltage': PathDefinition(VOLTAGE, Mean0Aggregator),
     '/Dc/0/Power':  PathDefinition(POWER, SumAggregator),
-    '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MeanAggregator),
+    '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MaxAggregator),
     '/Soc':  PathDefinition(NO_UNIT, Mean0Aggregator),
     '/TimeToGo':  PathDefinition(NO_UNIT, Mean0Aggregator),
     '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator),

@@ -46,13 +46,13 @@ To create a virtual battery by merging two (or more) other batteries, add:
 		"virtualBatteries": {
 			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.ttyS2", "com.victronenergy.battery.leastPrecedence"]
 		}
-	{
+	}
 
 (or use the more advanced syntax if interested in specific DBus paths:
 
 		"virtualBatteries": {
 			"com.victronenergy.battery.virtual1": {"com.victronenergy.battery.ttyS6": ["/Soc"], "com.victronenergy.battery.ttyUSB0": []},
-			"com.victronenergy.battery.virtual2": {"com.victronenergy.battery.ttyS7": ["/Soc"], "com.victronenergy.battery.ttyUSB1": []]
+			"com.victronenergy.battery.virtual2": {"com.victronenergy.battery.ttyS7": ["/Soc"], "com.victronenergy.battery.ttyUSB1": []}
 		}
 	}
 

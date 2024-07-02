@@ -8,7 +8,12 @@ schema = {
     "type": "object",
     "properties": {
         "excludedServices": {"type": "array", "items": {"type": "string"}},
-        "primaryServices": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+        "primaryServices": {
+            "anyOf": [
+                {"type": "array", "items": {"type": "string"}},
+                {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+            ]
+        },
         "auxiliaryServices": {
             "anyOf": [
                 {"type": "array", "items": {"type": "string"}},

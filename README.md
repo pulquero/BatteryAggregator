@@ -121,14 +121,30 @@ To change the log level to debug, add:
 			"com.victronenergy.battery.virtual2": ["com.victronenergy.battery.ttyS7", "com.victronenergy.battery.ttyUSB1"]
 		}
 	}
-	
+
+
+## Config Generator
+In order to make it easier to generate the config file, a small simple html has been created.
+This should help you to generate the JSON for your Configuration.
+
+You can find the Generator here: [Config Generator](https://pulquero.github.io/BatteryAggregator/config_generator/index.html)
+
+Alternatively, you can also run the generator locally:
+
+Download the `index.html` file from `docs/config_generator` and open it in your browser.
+
+After you have filled in the form, you can copy the generated JSON and paste it into your config file `/data/setupOptions/BatteryAggregator/config.json`
+
 
 ## Config Checker
-This project contains a small script which allows you to validate the config. It will also try to show you the issue ( if any ).
+This project contains a small script which allows you to validate the config. It will also try to show you the issue(s) ( if any ).
 To use it, run the following command:
 ```
 bash /data/BatteryAggregator/check_config.sh
 ```
+
+In case of errors, adjust the config.json and run the command again until no errors are shown.
+
 ### Note
 The Config Checker requires the following packages:
 - python3-pip
@@ -140,16 +156,6 @@ In case of permission errors, make sure that the `check_config.sh` is executable
 ```
 chmod +x /data/BatteryAggregator/check_config.sh
 ```
-
-
-## Config Generator
-In order to make it easier to generate the config file, a small simple html has been created.
-This should help you to generate the JSON for your Configuration.
-
-Find the index.html file in the folder config_generator. Download the file and open it in your browser.
-Now you are ready to go.
-After you have filled in the form, you can copy the generated JSON and paste it into your config file `/data/setupOptions/BatteryAggregator/config.json`
-
 
 ## Troubleshooting
 

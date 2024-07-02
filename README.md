@@ -46,13 +46,13 @@ To create a virtual battery by merging two (or more) other batteries, add:
 		"virtualBatteries": {
 			"com.victronenergy.battery.virtual1": ["com.victronenergy.battery.ttyS2", "com.victronenergy.battery.leastPrecedence"]
 		}
-	{
+	}
 
 (or use the more advanced syntax if interested in specific DBus paths:
 
 		"virtualBatteries": {
 			"com.victronenergy.battery.virtual1": {"com.victronenergy.battery.ttyS6": ["/Soc"], "com.victronenergy.battery.ttyUSB0": []},
-			"com.victronenergy.battery.virtual2": {"com.victronenergy.battery.ttyS7": ["/Soc"], "com.victronenergy.battery.ttyUSB1": []]
+			"com.victronenergy.battery.virtual2": {"com.victronenergy.battery.ttyS7": ["/Soc"], "com.victronenergy.battery.ttyUSB1": []}
 		}
 	}
 
@@ -121,7 +121,42 @@ To change the log level to debug, add:
 			"com.victronenergy.battery.virtual2": ["com.victronenergy.battery.ttyS7", "com.victronenergy.battery.ttyUSB1"]
 		}
 	}
-	
+
+
+## Config Generator
+In order to make it easier to generate the config file, a small simple html has been created.
+This should help you to generate the JSON for your Configuration.
+
+You can find the Generator here: [Config Generator](https://pulquero.github.io/BatteryAggregator/config_generator/index.html)
+
+Alternatively, you can also run the generator locally:
+
+Download the `index.html` file from `docs/config_generator` and open it in your browser.
+
+After you have filled in the form, you can copy the generated JSON and paste it into your config file `/data/setupOptions/BatteryAggregator/config.json`
+
+
+## Config Checker
+This project contains a small script which allows you to validate the config. It will also try to show you the issue(s) ( if any ).
+To use it, run the following command:
+```
+bash /data/BatteryAggregator/check_config.sh
+```
+
+In case of errors, adjust the config.json and run the command again until no errors are shown.
+
+### Note
+The Config Checker requires the following packages:
+- python3-pip
+- jsonschema
+
+The command above will automatically check for the packages and will ask you if you want to install them if they are not present.
+
+In case of permission errors, make sure that the `check_config.sh` is executable. If not, run the following command:
+```
+chmod +x /data/BatteryAggregator/check_config.sh
+```
+
 ## Troubleshooting
 
 Check the log:

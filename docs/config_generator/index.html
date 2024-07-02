@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+
+<h2>Generate JSON from Input</h2>
+
+<div style="display: flex; justify-content: space-between;">
+
+    <form id="jsonForm" style="background-color: #f2f2f2; padding: 20px; border-radius: 5px; width: 45%;">
+        <label for="excludedServices">Excluded Services:</label><br>
+        <div style="display: flex;">
+            <input type="text" id="excludedServices" name="excludedServices"
+                   placeholder="com.victronenergy.battery.ttyS9"
+                   style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <button type="button" id="addExcludedService"
+                    style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
+                Add
+            </button>
+        </div>
+        <div id="servicesList"></div>
+        <br>
+        <label for="primaryServices">Primary Services:</label><br>
+        <div style="display: flex;">
+            <input type="text" id="primaryServices" name="primaryServices" placeholder="com.victronenergy.battery.ttyS9"
+                   style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <button type="button" id="addPrimaryService"
+                    style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
+                Add
+            </button>
+        </div>
+        <div id="primaryServicesList"></div>
+        <br>
+        <label for="auxiliaryServices">Auxiliary Services:</label><br>
+        <div style="display: flex;">
+            <input type="text" id="auxiliaryServices" name="auxiliaryServices"
+                   placeholder="com.victronenergy.battery.ttyS9"
+                   style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <button type="button" id="addAuxiliaryService"
+                    style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
+                Add
+            </button>
+        </div>
+        <div id="auxiliaryServicesList"></div>
+        <br>
+        <label for="virtualBatteries">Virtual Batteries:</label><br>
+        <div style="display: flex;">
+            <input type="text" id="virtualBatteries" name="virtualBatteries"
+                   placeholder="com.victronenergy.battery.virtual1"
+                   style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <button type="button" id="addVirtualBattery"
+                    style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
+                Add
+            </button>
+        </div>
+        <div id="virtualBatteriesList"></div>
+        <br>
+        <label for="capacity">Capacity (Ah):</label><br>
+        <input type="number" id="capacity" name="capacity" placeholder="200"
+               style="width: 100%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;"><br>
+        <label for="currentRatioMethod">Current Ratio Method:</label><br>
+        <select id="currentRatioMethod" name="currentRatioMethod"
+                style="width: 100%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <option value="null" selected></option>
+            <option value="ir">IR</option>
+            <option value="capacity">Capacity</option>
+            <option value="count">Count</option>
+        </select><br>
+        <label for="cvlMode">CVL Mode:</label><br>
+        <select id="cvlMode" name="cvlMode"
+                style="width: 100%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <option value="null" selected></option>
+            <option value="max_when_balancing">Max when Balancing</option>
+            <option value="min_when_balancing">Min when Balancing</option>
+            <option value="max_always">Max Always</option>
+            <option value="dvcc">DVCC</option>
+        </select><br>
+        <label for="logLevel">Log Level:</label><br>
+        <select id="logLevel" name="logLevel"
+                style="width: 100%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
+            <option value="null" selected></option>
+            <option value="NOTSET">NOTSET</option>
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+            <option value="CRITICAL">CRITICAL</option>
+        </select><br>
+    </form>
+    <div style="width: 45%;">
+        <h3>Generated config.json content</h3>
+        <pre id="result" style="background-color: #f2f2f2; padding: 20px; border-radius: 5px; overflow: auto;"></pre>
+    </div>
+</div>
+
+<script>
+    function validateInput(event) {
+        // Get the input field and the corresponding "Add" button
+        let inputField = event.target;
+        let addButton = document.getElementById(inputField.parentNode.querySelector('button').id);
+
+        // Check if the input value contains a space
+        if (inputField.value.includes(' ')) {
+            if (inputField.parentNode.querySelector('span')) {
+                return;
+            }
+            // If it does, display an error message and disable the "Add" button
+            inputField.setCustomValidity('Input cannot contain spaces');
+            addButton.disabled = true;
+            addButton.style.backgroundColor = 'gray';
+
+            // Change the border color of the input field to red
+            inputField.style.borderColor = 'red';
+
+            // Create a tooltip element and add it to the form
+            let tooltip = document.createElement('span');
+            tooltip.textContent = 'Input cannot contain spaces';
+            tooltip.style.color = 'red';
+            tooltip.style.position = 'absolute';
+            tooltip.style.backgroundColor = '#f2f2f2';
+            tooltip.style.border = '1px solid';
+            tooltip.style.padding = '5px';
+            tooltip.style.borderRadius = '5px';
+            tooltip.style.marginLeft = '100px';
+            inputField.parentNode.appendChild(tooltip);
+        } else {
+            // If it doesn't, clear the error message and enable the "Add" button
+            inputField.setCustomValidity('');
+            addButton.disabled = false;
+            addButton.style.backgroundColor = '#4CAF50';
+
+            // Change the border color of the input field back to its original color
+            inputField.style.borderColor = '';
+
+            // Remove the tooltip element from the form
+            let tooltip = inputField.parentNode.querySelector('span');
+            if (tooltip) {
+                inputField.parentNode.removeChild(tooltip);
+            }
+        }
+    }
+
+    document.getElementById('excludedServices').addEventListener('input', validateInput);
+    document.getElementById('primaryServices').addEventListener('input', validateInput);
+    document.getElementById('auxiliaryServices').addEventListener('input', validateInput);
+    document.getElementById('virtualBatteries').addEventListener('input', validateInput);
+
+    let excludedServices = [];
+    let primaryServices = [];
+    let primaryServicesItems = {};
+    let auxiliaryServices = [];
+    let auxiliaryServicesItems = {};
+    let virtualBatteries = [];
+    let virtualBatteriesItems = {};
+
+    function updateExcludedServicesList() {
+        let servicesList = document.getElementById('servicesList');
+        servicesList.innerHTML = '';
+
+        excludedServices.forEach(function (service, index) {
+            let serviceDiv = document.createElement('div');
+            serviceDiv.textContent = service;
+            serviceDiv.style.border = "1px solid black";
+            serviceDiv.style.backgroundColor = "#FFFFFF"
+            serviceDiv.style.width = "85%";
+            serviceDiv.style.padding = "1px 20px";
+            serviceDiv.style.height = "22px";
+            serviceDiv.style.boxSizing = "border-box";
+
+            let addButton = document.createElement('button');
+            addButton.innerHTML = '';
+            addButton.style.display = 'none';
+            addButton.addEventListener('click', function () {
+                updateExcludedServicesList();
+                generateJson();
+            });
+            serviceDiv.appendChild(addButton);
+
+            let removeButton = document.createElement('button');
+            removeButton.innerHTML = '&#45;';
+            removeButton.style.color = 'red';
+            removeButton.style.fontStyle = 'bold';
+            removeButton.style.fontSize = '1.5em';
+            removeButton.style.border = 'none';
+            removeButton.style.backgroundColor = 'transparent';
+            removeButton.style.cursor = 'pointer';
+            removeButton.style.width = "15%";
+            removeButton.style.height = "22px";
+            removeButton.style.marginTop = "-4px";
+            removeButton.addEventListener('click', function () {
+                excludedServices.splice(index, 1);
+                updateExcludedServicesList();
+                generateJson();
+            });
+
+            let wrapperDiv = document.createElement('div');
+            wrapperDiv.style.display = "flex";
+            wrapperDiv.style.marginBottom = "5px";
+
+            wrapperDiv.appendChild(serviceDiv);
+            wrapperDiv.appendChild(removeButton);
+
+            servicesList.appendChild(wrapperDiv);
+        });
+    }
+
+    function updatePrimaryServicesList() {
+        let servicesList = document.getElementById('primaryServicesList');
+        servicesList.innerHTML = '';
+        primaryServices.forEach(function (service, index) {
+            let serviceDiv = document.createElement('div');
+            serviceDiv.textContent = service;
+            serviceDiv.style.border = "1px solid black";
+            serviceDiv.style.backgroundColor = "#FFFFFF"
+            serviceDiv.style.width = "85%";
+            serviceDiv.style.padding = "1px 20px";
+            serviceDiv.style.boxSizing = "border-box";
+
+            let subItemInput = document.createElement('input');
+            subItemInput.type = 'text';
+            subItemInput.placeholder = '/Dc/0/Current';
+            subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let subItem = subItemInput.value;
+                    if (subItem) {
+                        if (primaryServicesItems[service].includes(subItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            primaryServicesItems[service].push(subItem);
+                            subItemInput.value = '';
+                        }
+                    }
+                    updatePrimaryServicesList();
+                    generateJson();
+                }
+            })
+            serviceDiv.appendChild(subItemInput);
+
+            let wrapperDiv = document.createElement('div');
+            wrapperDiv.style.display = "flex";
+            wrapperDiv.style.marginBottom = "5px";
+
+            let addButton = document.createElement('button');
+            addButton.innerHTML = '&#43;';
+            addButton.style.color = 'green';
+            addButton.style.fontStyle = 'bold';
+            addButton.style.fontSize = '1.5em';
+            addButton.style.border = 'none';
+            addButton.style.backgroundColor = 'transparent';
+            addButton.style.cursor = 'pointer';
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                let subItem = subItemInput.value;
+                if (subItem) {
+                    if (primaryServicesItems[service].includes(subItem)) {
+                        alert("Item already exist. Duplicates not allowed");
+                    } else {
+                        primaryServicesItems[service].push(subItem);
+                        subItemInput.value = '';
+                    }
+                }
+                updatePrimaryServicesList();
+                generateJson();
+            });
+            serviceDiv.appendChild(addButton);
+
+            let removeButton = document.createElement('button');
+            removeButton.innerHTML = '&#45;';
+            removeButton.style.color = 'red';
+            removeButton.style.fontStyle = 'bold';
+            removeButton.style.fontSize = '1.5em';
+            removeButton.style.border = 'none';
+            removeButton.style.backgroundColor = 'transparent';
+            removeButton.style.cursor = 'pointer';
+            removeButton.style.width = "15%";
+            removeButton.style.height = "22px";
+            removeButton.style.marginTop = "-4px";
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                primaryServices.splice(index, 1);
+                delete primaryServicesItems[service];
+                updatePrimaryServicesList();
+                generateJson();
+            });
+
+            let subItemsList = document.createElement('div');
+            primaryServicesItems[service].forEach(function (subItem, subIndex) {
+                let subItemDiv = document.createElement('div');
+                subItemDiv.textContent = '  - ' + subItem + ' ';
+                let removeSubItemButton = document.createElement('button');
+                removeSubItemButton.textContent = 'Remove';
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    primaryServicesItems[service].splice(subIndex, 1);
+                    updatePrimaryServicesList();
+                    generateJson();
+                });
+                subItemDiv.appendChild(removeSubItemButton);
+                subItemsList.appendChild(subItemDiv);
+            });
+            serviceDiv.appendChild(subItemsList);
+
+            wrapperDiv.appendChild(serviceDiv);
+            wrapperDiv.appendChild(removeButton);
+
+            servicesList.appendChild(wrapperDiv);
+        });
+    }
+
+    function updateAuxiliaryServicesList() {
+        let servicesList = document.getElementById('auxiliaryServicesList');
+        servicesList.innerHTML = '';
+        auxiliaryServices.forEach(function (service, index) {
+            let serviceDiv = document.createElement('div');
+            serviceDiv.textContent = service;
+            serviceDiv.style.border = "1px solid black";
+            serviceDiv.style.backgroundColor = "#FFFFFF"
+            serviceDiv.style.width = "85%";
+            serviceDiv.style.padding = "1px 20px";
+            serviceDiv.style.boxSizing = "border-box";
+
+            let subItemInput = document.createElement('input');
+            subItemInput.type = 'text';
+            subItemInput.placeholder = '/Dc/0/Current';
+            subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let subItem = subItemInput.value;
+                    if (subItem) {
+                        if (auxiliaryServicesItems[service].includes(subItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            auxiliaryServicesItems[service].push(subItem);
+                            subItemInput.value = '';
+                        }
+                    }
+                    updateAuxiliaryServicesList();
+                    generateJson();
+                }
+            })
+            serviceDiv.appendChild(subItemInput);
+
+            let wrapperDiv = document.createElement('div');
+            wrapperDiv.style.display = "flex";
+            wrapperDiv.style.marginBottom = "5px";
+
+            let addButton = document.createElement('button');
+            addButton.innerHTML = '&#43;';
+            addButton.style.color = 'green';
+            addButton.style.fontStyle = 'bold';
+            addButton.style.fontSize = '1.5em';
+            addButton.style.border = 'none';
+            addButton.style.backgroundColor = 'transparent';
+            addButton.style.cursor = 'pointer';
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                let subItem = subItemInput.value;
+                if (subItem) {
+                    if (auxiliaryServicesItems[service].includes(subItem)) {
+                        alert("Item already exist. Duplicates not allowed");
+                    } else {
+                        auxiliaryServicesItems[service].push(subItem);
+                        subItemInput.value = '';
+                    }
+                }
+                updateAuxiliaryServicesList();
+                generateJson();
+            });
+            serviceDiv.appendChild(addButton);
+
+            let removeButton = document.createElement('button');
+            removeButton.innerHTML = '&#45;';
+            removeButton.style.color = 'red';
+            removeButton.style.fontStyle = 'bold';
+            removeButton.style.fontSize = '1.5em';
+            removeButton.style.border = 'none';
+            removeButton.style.backgroundColor = 'transparent';
+            removeButton.style.cursor = 'pointer';
+            removeButton.style.width = "15%";
+            removeButton.style.height = "22px";
+            removeButton.style.marginTop = "-4px";
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                auxiliaryServices.splice(index, 1);
+                delete auxiliaryServicesItems[service];
+                updateAuxiliaryServicesList();
+                generateJson();
+            });
+
+            let subItemsList = document.createElement('div');
+            auxiliaryServicesItems[service].forEach(function (subItem, subIndex) {
+                let subItemDiv = document.createElement('div');
+                subItemDiv.textContent = '  - ' + subItem + ' ';
+                let removeSubItemButton = document.createElement('button');
+                removeSubItemButton.textContent = 'Remove';
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    auxiliaryServicesItems[service].splice(subIndex, 1);
+                    updateAuxiliaryServicesList();
+                    generateJson();
+                });
+                subItemDiv.appendChild(removeSubItemButton);
+                subItemsList.appendChild(subItemDiv);
+            });
+            serviceDiv.appendChild(subItemsList);
+
+            wrapperDiv.appendChild(serviceDiv);
+            wrapperDiv.appendChild(removeButton);
+
+            servicesList.appendChild(wrapperDiv);
+        });
+    }
+
+    function updateVirtualBatteriesList() {
+        let servicesList = document.getElementById('virtualBatteriesList');
+        servicesList.innerHTML = '';
+        virtualBatteries.forEach(function (service, index) {
+            let serviceDiv = document.createElement('div');
+            serviceDiv.textContent = service;
+            serviceDiv.style.border = "1px solid black";
+            serviceDiv.style.backgroundColor = "#FFFFFF"
+            serviceDiv.style.width = "85%";
+            serviceDiv.style.padding = "1px 20px";
+            serviceDiv.style.boxSizing = "border-box";
+
+            let subItemInput = document.createElement('input');
+            subItemInput.type = 'text';
+            subItemInput.placeholder = 'com.victron.battery.ttyS9';
+            subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let alerted = false;
+                    if (subItemInput.value) {
+                        let subItem = {};
+                        subItem[subItemInput.value] = [];
+                        for (let battery in virtualBatteriesItems[service]) {
+                            if (subItemInput.value === battery) {
+                                alert("Item already exist. Duplicates not allowed");
+                                alerted = true;
+                            } else {
+                                subItem[battery] = virtualBatteriesItems[service][battery];
+                            }
+                        }
+
+                        if (!alerted) {
+                            virtualBatteriesItems[service] = subItem;
+                            subItemInput.value = '';
+                        }
+                        virtualBatteriesItems[service] = subItem;
+                        subItemInput.value = '';
+                    }
+                    updateVirtualBatteriesList();
+                    generateJson();
+                }
+            });
+            serviceDiv.appendChild(subItemInput);
+
+            let wrapperDiv = document.createElement('div');
+            wrapperDiv.style.display = "flex";
+            wrapperDiv.style.marginBottom = "5px";
+
+            let addButton = document.createElement('button');
+            addButton.innerHTML = '&#43;';
+            addButton.style.color = 'green';
+            addButton.style.fontStyle = 'bold';
+            addButton.style.fontSize = '1.5em';
+            addButton.style.border = 'none';
+            addButton.style.backgroundColor = 'transparent';
+            addButton.style.cursor = 'pointer';
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                let alerted = false;
+                if (subItemInput.value) {
+                    let subItem = {};
+                    subItem[subItemInput.value] = [];
+                    for (let battery in virtualBatteriesItems[service]) {
+                        if (subItemInput.value === battery) {
+                            alert("Item already exist. Duplicates not allowed");
+                            alerted = true;
+                        } else {
+                            subItem[battery] = virtualBatteriesItems[service][battery];
+                        }
+                    }
+
+                    if (!alerted) {
+                        virtualBatteriesItems[service] = subItem;
+                        subItemInput.value = '';
+                    }
+                }
+                updateVirtualBatteriesList();
+                generateJson();
+            });
+            serviceDiv.appendChild(addButton);
+
+            let removeButton = document.createElement('button');
+            removeButton.innerHTML = '&#45;';
+            removeButton.style.color = 'red';
+            removeButton.style.fontStyle = 'bold';
+            removeButton.style.fontSize = '1.5em';
+            removeButton.style.border = 'none';
+            removeButton.style.backgroundColor = 'transparent';
+            removeButton.style.cursor = 'pointer';
+            removeButton.style.width = "15%";
+            removeButton.style.height = "22px";
+            removeButton.style.marginTop = "-4px";
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                virtualBatteries.splice(index, 1);
+                delete virtualBatteriesItems[service];
+                updateVirtualBatteriesList();
+                generateJson();
+            });
+
+            let subItemsList = document.createElement('div');
+
+            for (let subItem in virtualBatteriesItems[service]) {
+                let subItemDiv = document.createElement('div');
+                subItemDiv.textContent = '  - ' + subItem + ' ';
+                let removeSubItemButton = document.createElement('button');
+                removeSubItemButton.textContent = 'Remove';
+
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    delete virtualBatteriesItems[service][subItem];
+                    updateVirtualBatteriesList();
+                    generateJson();
+                });
+
+                let subSubItemInput = document.createElement('input');
+                subSubItemInput.type = 'text';
+                subSubItemInput.placeholder = '/Dc/0/Current';
+                subSubItemInput.style.marginLeft = "10px";
+                subSubItemInput.addEventListener('keypress', function (event) {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        let subSubItem = subSubItemInput.value;
+                        if (subSubItem) {
+                            if (virtualBatteriesItems[service][subItem].includes(subSubItem)) {
+                                alert("Item already exist. Duplicates not allowed");
+                            } else {
+                                virtualBatteriesItems[service][subItem].push(subSubItem);
+                                subSubItemInput.value = '';
+                            }
+                        }
+                        updateVirtualBatteriesList();
+                        generateJson();
+                    }
+                });
+                subItemDiv.appendChild(subSubItemInput);
+
+                let addButton = document.createElement('button');
+                addButton.innerHTML = '&#43;';
+                addButton.style.color = 'green';
+                addButton.style.fontStyle = 'bold';
+                addButton.style.fontSize = '1.5em';
+                addButton.style.border = 'none';
+                addButton.style.backgroundColor = 'transparent';
+                addButton.style.cursor = 'pointer';
+                addButton.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    let subSubItem = subSubItemInput.value;
+                    if (subSubItem) {
+                        if (virtualBatteriesItems[service][subItem].includes(subSubItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            virtualBatteriesItems[service][subItem].push(subSubItem);
+                            subSubItemInput.value = '';
+                        }
+                    }
+                    updateVirtualBatteriesList();
+                    generateJson();
+                });
+                subItemDiv.appendChild(addButton);
+
+                let subSubItemsList = document.createElement('div');
+                virtualBatteriesItems[service][subItem].forEach(function (subSubItem, subSubIndex) {
+                    let subSubItemDiv = document.createElement('div');
+                    subSubItemDiv.textContent = ' - ' + subSubItem + ' ';
+                    subSubItemDiv.style.marginLeft = "10px";
+                    let removeSubSubItemButton = document.createElement('button');
+                    removeSubSubItemButton.textContent = 'Remove';
+                    removeSubSubItemButton.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        virtualBatteriesItems[service][subItem].splice(subSubIndex, 1);
+                        updateVirtualBatteriesList();
+                        generateJson();
+                    });
+
+                    subSubItemDiv.appendChild(removeSubSubItemButton);
+                    subSubItemsList.appendChild(subSubItemDiv);
+                });
+                subItemDiv.appendChild(removeSubItemButton);
+                subItemDiv.appendChild(subSubItemsList);
+                subItemsList.appendChild(subItemDiv);
+            }
+            serviceDiv.appendChild(subItemsList);
+
+            wrapperDiv.appendChild(serviceDiv);
+            wrapperDiv.appendChild(removeButton);
+
+            servicesList.appendChild(wrapperDiv);
+        });
+    }
+
+    document.getElementById('excludedServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('excludedServices').value;
+            if (service) {
+                if (excludedServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                excludedServices.push(service);
+                document.getElementById('excludedServices').value = '';
+                updateExcludedServicesList();
+                generateJson();
+            }
+        }
+    })
+    document.getElementById('addExcludedService').addEventListener('click', function () {
+        let service = document.getElementById('excludedServices').value;
+        if (service) {
+            if (excludedServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
+            excludedServices.push(service);
+            document.getElementById('excludedServices').value = '';
+            updateExcludedServicesList();
+            generateJson();
+        }
+    });
+
+    document.getElementById('primaryServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('primaryServices').value;
+            if (service) {
+                if (primaryServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                primaryServices.push(service);
+                primaryServicesItems[service] = [];
+                document.getElementById('primaryServices').value = '';
+                updatePrimaryServicesList();
+                generateJson();
+            }
+        }
+    })
+    document.getElementById('addPrimaryService').addEventListener('click', function () {
+        let service = document.getElementById('primaryServices').value;
+        if (service) {
+            if (primaryServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
+            primaryServices.push(service);
+            primaryServicesItems[service] = [];
+            document.getElementById('primaryServices').value = '';
+            updatePrimaryServicesList();
+            generateJson();
+        }
+    });
+
+    document.getElementById('auxiliaryServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('auxiliaryServices').value;
+            if (service) {
+                if (auxiliaryServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                auxiliaryServices.push(service);
+                auxiliaryServicesItems[service] = [];
+                document.getElementById('auxiliaryServices').value = '';
+                updateAuxiliaryServicesList();
+                generateJson();
+            }
+        }
+    })
+    document.getElementById('addAuxiliaryService').addEventListener('click', function () {
+        let service = document.getElementById('auxiliaryServices').value;
+        if (service) {
+            if (auxiliaryServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
+            auxiliaryServices.push(service);
+            auxiliaryServicesItems[service] = [];
+            document.getElementById('auxiliaryServices').value = '';
+            updateAuxiliaryServicesList();
+            generateJson();
+        }
+    });
+
+    document.getElementById('virtualBatteries').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault()
+            let service = document.getElementById('virtualBatteries').value;
+            if (service) {
+                if (virtualBatteries.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                virtualBatteries.push(service);
+                virtualBatteriesItems[service] = [];
+                document.getElementById('virtualBatteries').value = '';
+                updateVirtualBatteriesList();
+                generateJson();
+            }
+        }
+    })
+    document.getElementById('addVirtualBattery').addEventListener('click', function () {
+        let service = document.getElementById('virtualBatteries').value;
+        if (service) {
+            if (virtualBatteries.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
+            virtualBatteries.push(service);
+            virtualBatteriesItems[service] = [];
+            document.getElementById('virtualBatteries').value = '';
+            updateVirtualBatteriesList();
+            generateJson();
+        }
+    });
+    document.getElementById('capacity').addEventListener('change', generateJson);
+    document.getElementById('capacity').addEventListener('keyup', generateJson);
+    document.getElementById('currentRatioMethod').addEventListener('change', generateJson);
+    document.getElementById('cvlMode').addEventListener('change', generateJson);
+    document.getElementById('logLevel').addEventListener('change', generateJson);
+
+    function generateJson() {
+        let capacity = document.getElementById('capacity').value;
+        let currentRatioMethod = document.getElementById('currentRatioMethod').value;
+        let cvlMode = document.getElementById('cvlMode').value;
+        let logLevel = document.getElementById('logLevel').value;
+
+        let jsonObject = {
+            "excludedServices": JSON.parse(JSON.stringify(excludedServices)),
+            "primaryServices": JSON.parse(JSON.stringify(primaryServicesItems)),
+            "auxiliaryServices": JSON.parse(JSON.stringify(auxiliaryServicesItems)),
+            "virtualBatteries": JSON.parse(JSON.stringify(virtualBatteriesItems)),
+            "capacity": parseInt(capacity),
+            "currentRatioMethod": currentRatioMethod,
+            "cvlMode": cvlMode,
+            "logLevel": logLevel
+        };
+
+        function toShortHandFormat(inputData, objectKey) {
+            if (inputData === null || inputData === undefined || inputData.length === 0) {
+                delete jsonObject[objectKey];
+            } else {
+                let allSubItemsEmpty = true;
+                for (let key in jsonObject[objectKey]) {
+                    if (jsonObject[objectKey][key].length > 0) {
+                        allSubItemsEmpty = false;
+                        break;
+                    }
+                }
+
+                // If all subItems arrays are empty, replace primaryServices with an array of keys
+                if (allSubItemsEmpty) {
+                    jsonObject[objectKey] = Object.keys(jsonObject[objectKey]);
+                }
+            }
+        }
+
+        Object.entries(jsonObject.virtualBatteries).map(([key, value]) => {
+            let allSubItemsEmpty = true;
+            for (let subKey in value) {
+                if (value[subKey].length > 0) {
+                    allSubItemsEmpty = false;
+                    break;
+                }
+            }
+
+            if (value.length === 0) {
+                delete jsonObject.virtualBatteries[key];
+            } else {
+                if (allSubItemsEmpty) {
+                    jsonObject.virtualBatteries[key] = Object.keys(value);
+                }
+            }
+        });
+
+        if (Object.keys(jsonObject.virtualBatteries).length === 0) {
+            delete jsonObject.virtualBatteries;
+        }
+
+        if (excludedServices === null || excludedServices === undefined || excludedServices.length === 0) {
+            delete jsonObject.excludedServices;
+        }
+
+        toShortHandFormat(primaryServices, 'primaryServices')
+        toShortHandFormat(auxiliaryServices, 'auxiliaryServices')
+        // batteriesToShortHandFormat(virtualBatteries, 'virtualBatteries')
+
+        if (capacity === '' || capacity === null || capacity === undefined) {
+            delete jsonObject.capacity;
+        }
+
+        if (currentRatioMethod === '' || currentRatioMethod === null || currentRatioMethod === undefined || currentRatioMethod === 'null') {
+            delete jsonObject.currentRatioMethod;
+        }
+
+        if (cvlMode === '' || cvlMode === null || cvlMode === undefined || cvlMode === 'null') {
+            delete jsonObject.cvlMode;
+        }
+
+        if (logLevel === '' || logLevel === null || logLevel === undefined || logLevel === 'null') {
+            delete jsonObject.logLevel;
+        }
+
+        document.getElementById('result').textContent = JSON.stringify(jsonObject, null, 2);
+    }
+</script>
+
+</body>
+</html>

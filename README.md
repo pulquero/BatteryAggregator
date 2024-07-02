@@ -122,6 +122,35 @@ To change the log level to debug, add:
 		}
 	}
 	
+
+## Config Checker
+This project contains a small script which allows you to validate the config. It will also try to show you the issue ( if any ).
+To use it, run the following command:
+```
+bash /data/BatteryAggregator/check_config.sh
+```
+### Note
+The Config Checker requires the following packages:
+- python3-pip
+- jsonschema
+
+The command above will automatically check for the packages and will ask you if you want to install them if they are not present.
+
+In case of permission errors, make sure that the `check_config.sh` is executable. If not, run the following command:
+```
+chmod +x /data/BatteryAggregator/check_config.sh
+```
+
+
+## Config Generator
+In order to make it easier to generate the config file, a small simple html has been created.
+This should help you to generate the JSON for your Configuration.
+
+Find the index.html file in the folder config_generator. Download the file and open it in your browser.
+Now you are ready to go.
+After you have filled in the form, you can copy the generated JSON and paste it into your config file `/data/setupOptions/BatteryAggregator/config.json`
+
+
 ## Troubleshooting
 
 Check the log:

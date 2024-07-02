@@ -12,7 +12,7 @@
             <input type="text" id="excludedServices" name="excludedServices"
                    placeholder="com.victronenergy.battery.ttyS9"
                    style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
-            <button type="button" id="addService"
+            <button type="button" id="addExcludedService"
                     style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
                 Add
             </button>
@@ -32,7 +32,8 @@
         <br>
         <label for="auxiliaryServices">Auxiliary Services:</label><br>
         <div style="display: flex;">
-            <input type="text" id="auxiliaryServices" name="auxiliaryServices" placeholder="com.victronenergy.battery.ttyS9"
+            <input type="text" id="auxiliaryServices" name="auxiliaryServices"
+                   placeholder="com.victronenergy.battery.ttyS9"
                    style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
             <button type="button" id="addAuxiliaryService"
                     style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
@@ -43,7 +44,8 @@
         <br>
         <label for="virtualBatteries">Virtual Batteries:</label><br>
         <div style="display: flex;">
-            <input type="text" id="virtualBatteries" name="virtualBatteries" placeholder="com.victronenergy.battery.virtual1"
+            <input type="text" id="virtualBatteries" name="virtualBatteries"
+                   placeholder="com.victronenergy.battery.virtual1"
                    style="width: 85%; padding: 12px 20px; margin: 8px 0; box-sizing: border-box;">
             <button type="button" id="addVirtualBattery"
                     style="width: 15%; background-color: #4CAF50; color: white; padding: 10px 24px; margin: 8px 0; border: none; cursor: pointer;">
@@ -91,7 +93,6 @@
 </div>
 
 <script>
-
     function validateInput(event) {
         // Get the input field and the corresponding "Add" button
         let inputField = event.target;
@@ -151,29 +152,10 @@
     let virtualBatteries = [];
     let virtualBatteriesItems = {};
 
-    function createRemoveButton(items, index, updateFunction) {
-        let removeButton = document.createElement('button');
-        removeButton.innerHTML = '&#45;';
-        removeButton.style.color = 'red';
-        removeButton.style.fontStyle = 'bold';
-        removeButton.style.fontSize = '1.5em';
-        removeButton.style.border = 'none';
-        removeButton.style.backgroundColor = 'transparent';
-        removeButton.style.cursor = 'pointer';
-        removeButton.style.width = "15%";
-        removeButton.style.height = "22px";
-        removeButton.style.marginTop = "-4px";
-        removeButton.addEventListener('click', function () {
-            items.splice(index, 1);
-            updateFunction();
-            generateJson();
-        });
-        return removeButton;
-    }
-
     function updateExcludedServicesList() {
         let servicesList = document.getElementById('servicesList');
         servicesList.innerHTML = '';
+
         excludedServices.forEach(function (service, index) {
             let serviceDiv = document.createElement('div');
             serviceDiv.textContent = service;
@@ -184,7 +166,32 @@
             serviceDiv.style.height = "22px";
             serviceDiv.style.boxSizing = "border-box";
 
-            let removeButton = createRemoveButton(excludedServices, index, updateExcludedServicesList);
+            let addButton = document.createElement('button');
+            addButton.innerHTML = '';
+            addButton.style.display = 'none';
+            addButton.addEventListener('click', function () {
+                updateExcludedServicesList();
+                generateJson();
+            });
+            serviceDiv.appendChild(addButton);
+
+            let removeButton = document.createElement('button');
+            removeButton.innerHTML = '&#45;';
+            removeButton.style.color = 'red';
+            removeButton.style.fontStyle = 'bold';
+            removeButton.style.fontSize = '1.5em';
+            removeButton.style.border = 'none';
+            removeButton.style.backgroundColor = 'transparent';
+            removeButton.style.cursor = 'pointer';
+            removeButton.style.width = "15%";
+            removeButton.style.height = "22px";
+            removeButton.style.marginTop = "-4px";
+            removeButton.addEventListener('click', function () {
+                excludedServices.splice(index, 1);
+                updateExcludedServicesList();
+                generateJson();
+            });
+
             let wrapperDiv = document.createElement('div');
             wrapperDiv.style.display = "flex";
             wrapperDiv.style.marginBottom = "5px";
@@ -212,6 +219,22 @@
             subItemInput.type = 'text';
             subItemInput.placeholder = '/Dc/0/Current';
             subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let subItem = subItemInput.value;
+                    if (subItem) {
+                        if (primaryServicesItems[service].includes(subItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            primaryServicesItems[service].push(subItem);
+                            subItemInput.value = '';
+                        }
+                    }
+                    updatePrimaryServicesList();
+                    generateJson();
+                }
+            })
             serviceDiv.appendChild(subItemInput);
 
             let wrapperDiv = document.createElement('div');
@@ -226,11 +249,16 @@
             addButton.style.border = 'none';
             addButton.style.backgroundColor = 'transparent';
             addButton.style.cursor = 'pointer';
-            addButton.addEventListener('click', function () {
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
                 let subItem = subItemInput.value;
                 if (subItem) {
-                    primaryServicesItems[service].push(subItem);
-                    subItemInput.value = '';
+                    if (primaryServicesItems[service].includes(subItem)) {
+                        alert("Item already exist. Duplicates not allowed");
+                    } else {
+                        primaryServicesItems[service].push(subItem);
+                        subItemInput.value = '';
+                    }
                 }
                 updatePrimaryServicesList();
                 generateJson();
@@ -248,7 +276,8 @@
             removeButton.style.width = "15%";
             removeButton.style.height = "22px";
             removeButton.style.marginTop = "-4px";
-            removeButton.addEventListener('click', function () {
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
                 primaryServices.splice(index, 1);
                 delete primaryServicesItems[service];
                 updatePrimaryServicesList();
@@ -261,7 +290,8 @@
                 subItemDiv.textContent = '  - ' + subItem + ' ';
                 let removeSubItemButton = document.createElement('button');
                 removeSubItemButton.textContent = 'Remove';
-                removeSubItemButton.addEventListener('click', function () {
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
                     primaryServicesItems[service].splice(subIndex, 1);
                     updatePrimaryServicesList();
                     generateJson();
@@ -294,6 +324,22 @@
             subItemInput.type = 'text';
             subItemInput.placeholder = '/Dc/0/Current';
             subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let subItem = subItemInput.value;
+                    if (subItem) {
+                        if (auxiliaryServicesItems[service].includes(subItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            auxiliaryServicesItems[service].push(subItem);
+                            subItemInput.value = '';
+                        }
+                    }
+                    updateAuxiliaryServicesList();
+                    generateJson();
+                }
+            })
             serviceDiv.appendChild(subItemInput);
 
             let wrapperDiv = document.createElement('div');
@@ -308,11 +354,16 @@
             addButton.style.border = 'none';
             addButton.style.backgroundColor = 'transparent';
             addButton.style.cursor = 'pointer';
-            addButton.addEventListener('click', function () {
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
                 let subItem = subItemInput.value;
                 if (subItem) {
-                    auxiliaryServicesItems[service].push(subItem);
-                    subItemInput.value = '';
+                    if (auxiliaryServicesItems[service].includes(subItem)) {
+                        alert("Item already exist. Duplicates not allowed");
+                    } else {
+                        auxiliaryServicesItems[service].push(subItem);
+                        subItemInput.value = '';
+                    }
                 }
                 updateAuxiliaryServicesList();
                 generateJson();
@@ -330,7 +381,8 @@
             removeButton.style.width = "15%";
             removeButton.style.height = "22px";
             removeButton.style.marginTop = "-4px";
-            removeButton.addEventListener('click', function () {
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
                 auxiliaryServices.splice(index, 1);
                 delete auxiliaryServicesItems[service];
                 updateAuxiliaryServicesList();
@@ -343,7 +395,8 @@
                 subItemDiv.textContent = '  - ' + subItem + ' ';
                 let removeSubItemButton = document.createElement('button');
                 removeSubItemButton.textContent = 'Remove';
-                removeSubItemButton.addEventListener('click', function () {
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
                     auxiliaryServicesItems[service].splice(subIndex, 1);
                     updateAuxiliaryServicesList();
                     generateJson();
@@ -376,6 +429,33 @@
             subItemInput.type = 'text';
             subItemInput.placeholder = 'com.victron.battery.ttyS9';
             subItemInput.style.marginLeft = "10px";
+            subItemInput.addEventListener('keypress', function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    let alerted = false;
+                    if (subItemInput.value) {
+                        let subItem = {};
+                        subItem[subItemInput.value] = [];
+                        for (let battery in virtualBatteriesItems[service]) {
+                            if (subItemInput.value === battery) {
+                                alert("Item already exist. Duplicates not allowed");
+                                alerted = true;
+                            } else {
+                                subItem[battery] = virtualBatteriesItems[service][battery];
+                            }
+                        }
+
+                        if (!alerted) {
+                            virtualBatteriesItems[service] = subItem;
+                            subItemInput.value = '';
+                        }
+                        virtualBatteriesItems[service] = subItem;
+                        subItemInput.value = '';
+                    }
+                    updateVirtualBatteriesList();
+                    generateJson();
+                }
+            });
             serviceDiv.appendChild(subItemInput);
 
             let wrapperDiv = document.createElement('div');
@@ -390,15 +470,25 @@
             addButton.style.border = 'none';
             addButton.style.backgroundColor = 'transparent';
             addButton.style.cursor = 'pointer';
-            addButton.addEventListener('click', function () {
+            addButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                let alerted = false;
                 if (subItemInput.value) {
                     let subItem = {};
                     subItem[subItemInput.value] = [];
                     for (let battery in virtualBatteriesItems[service]) {
-                        subItem[battery] = virtualBatteriesItems[service][battery];
+                        if (subItemInput.value === battery) {
+                            alert("Item already exist. Duplicates not allowed");
+                            alerted = true;
+                        } else {
+                            subItem[battery] = virtualBatteriesItems[service][battery];
+                        }
                     }
-                    virtualBatteriesItems[service] = subItem;
-                    subItemInput.value = '';
+
+                    if (!alerted) {
+                        virtualBatteriesItems[service] = subItem;
+                        subItemInput.value = '';
+                    }
                 }
                 updateVirtualBatteriesList();
                 generateJson();
@@ -416,7 +506,8 @@
             removeButton.style.width = "15%";
             removeButton.style.height = "22px";
             removeButton.style.marginTop = "-4px";
-            removeButton.addEventListener('click', function () {
+            removeButton.addEventListener('click', function (event) {
+                event.preventDefault();
                 virtualBatteries.splice(index, 1);
                 delete virtualBatteriesItems[service];
                 updateVirtualBatteriesList();
@@ -431,7 +522,8 @@
                 let removeSubItemButton = document.createElement('button');
                 removeSubItemButton.textContent = 'Remove';
 
-                removeSubItemButton.addEventListener('click', function () {
+                removeSubItemButton.addEventListener('click', function (event) {
+                    event.preventDefault();
                     delete virtualBatteriesItems[service][subItem];
                     updateVirtualBatteriesList();
                     generateJson();
@@ -441,6 +533,22 @@
                 subSubItemInput.type = 'text';
                 subSubItemInput.placeholder = '/Dc/0/Current';
                 subSubItemInput.style.marginLeft = "10px";
+                subSubItemInput.addEventListener('keypress', function (event) {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        let subSubItem = subSubItemInput.value;
+                        if (subSubItem) {
+                            if (virtualBatteriesItems[service][subItem].includes(subSubItem)) {
+                                alert("Item already exist. Duplicates not allowed");
+                            } else {
+                                virtualBatteriesItems[service][subItem].push(subSubItem);
+                                subSubItemInput.value = '';
+                            }
+                        }
+                        updateVirtualBatteriesList();
+                        generateJson();
+                    }
+                });
                 subItemDiv.appendChild(subSubItemInput);
 
                 let addButton = document.createElement('button');
@@ -451,11 +559,16 @@
                 addButton.style.border = 'none';
                 addButton.style.backgroundColor = 'transparent';
                 addButton.style.cursor = 'pointer';
-                addButton.addEventListener('click', function () {
+                addButton.addEventListener('click', function (event) {
+                    event.preventDefault();
                     let subSubItem = subSubItemInput.value;
                     if (subSubItem) {
-                        virtualBatteriesItems[service][subItem].push(subSubItem);
-                        subSubItemInput.value = '';
+                        if (virtualBatteriesItems[service][subItem].includes(subSubItem)) {
+                            alert("Item already exist. Duplicates not allowed");
+                        } else {
+                            virtualBatteriesItems[service][subItem].push(subSubItem);
+                            subSubItemInput.value = '';
+                        }
                     }
                     updateVirtualBatteriesList();
                     generateJson();
@@ -469,7 +582,8 @@
                     subSubItemDiv.style.marginLeft = "10px";
                     let removeSubSubItemButton = document.createElement('button');
                     removeSubSubItemButton.textContent = 'Remove';
-                    removeSubSubItemButton.addEventListener('click', function () {
+                    removeSubSubItemButton.addEventListener('click', function (event) {
+                        event.preventDefault();
                         virtualBatteriesItems[service][subItem].splice(subSubIndex, 1);
                         updateVirtualBatteriesList();
                         generateJson();
@@ -491,18 +605,60 @@
         });
     }
 
-    document.getElementById('addService').addEventListener('click', function () {
+    document.getElementById('excludedServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('excludedServices').value;
+            if (service) {
+                if (excludedServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                excludedServices.push(service);
+                document.getElementById('excludedServices').value = '';
+                updateExcludedServicesList();
+                generateJson();
+            }
+        }
+    })
+    document.getElementById('addExcludedService').addEventListener('click', function () {
         let service = document.getElementById('excludedServices').value;
         if (service) {
+            if (excludedServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
             excludedServices.push(service);
             document.getElementById('excludedServices').value = '';
             updateExcludedServicesList();
             generateJson();
         }
     });
+
+    document.getElementById('primaryServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('primaryServices').value;
+            if (service) {
+                if (primaryServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                primaryServices.push(service);
+                primaryServicesItems[service] = [];
+                document.getElementById('primaryServices').value = '';
+                updatePrimaryServicesList();
+                generateJson();
+            }
+        }
+    })
     document.getElementById('addPrimaryService').addEventListener('click', function () {
         let service = document.getElementById('primaryServices').value;
         if (service) {
+            if (primaryServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
             primaryServices.push(service);
             primaryServicesItems[service] = [];
             document.getElementById('primaryServices').value = '';
@@ -510,9 +666,31 @@
             generateJson();
         }
     });
+
+    document.getElementById('auxiliaryServices').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            let service = document.getElementById('auxiliaryServices').value;
+            if (service) {
+                if (auxiliaryServices.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                auxiliaryServices.push(service);
+                auxiliaryServicesItems[service] = [];
+                document.getElementById('auxiliaryServices').value = '';
+                updateAuxiliaryServicesList();
+                generateJson();
+            }
+        }
+    })
     document.getElementById('addAuxiliaryService').addEventListener('click', function () {
         let service = document.getElementById('auxiliaryServices').value;
         if (service) {
+            if (auxiliaryServices.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
             auxiliaryServices.push(service);
             auxiliaryServicesItems[service] = [];
             document.getElementById('auxiliaryServices').value = '';
@@ -520,9 +698,31 @@
             generateJson();
         }
     });
+
+    document.getElementById('virtualBatteries').addEventListener('keypress', function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault()
+            let service = document.getElementById('virtualBatteries').value;
+            if (service) {
+                if (virtualBatteries.includes(service)) {
+                    alert("Item already exist. Duplicates not allowed");
+                    return;
+                }
+                virtualBatteries.push(service);
+                virtualBatteriesItems[service] = [];
+                document.getElementById('virtualBatteries').value = '';
+                updateVirtualBatteriesList();
+                generateJson();
+            }
+        }
+    })
     document.getElementById('addVirtualBattery').addEventListener('click', function () {
         let service = document.getElementById('virtualBatteries').value;
         if (service) {
+            if (virtualBatteries.includes(service)) {
+                alert("Item already exist. Duplicates not allowed");
+                return;
+            }
             virtualBatteries.push(service);
             virtualBatteriesItems[service] = [];
             document.getElementById('virtualBatteries').value = '';
@@ -531,6 +731,7 @@
         }
     });
     document.getElementById('capacity').addEventListener('change', generateJson);
+    document.getElementById('capacity').addEventListener('keyup', generateJson);
     document.getElementById('currentRatioMethod').addEventListener('change', generateJson);
     document.getElementById('cvlMode').addEventListener('change', generateJson);
     document.getElementById('logLevel').addEventListener('change', generateJson);
@@ -542,10 +743,10 @@
         let logLevel = document.getElementById('logLevel').value;
 
         let jsonObject = {
-            "excludedServices": excludedServices,
-            "primaryServices": primaryServicesItems,
-            "auxiliaryServices": auxiliaryServicesItems,
-            "virtualBatteries": virtualBatteriesItems,
+            "excludedServices": JSON.parse(JSON.stringify(excludedServices)),
+            "primaryServices": JSON.parse(JSON.stringify(primaryServicesItems)),
+            "auxiliaryServices": JSON.parse(JSON.stringify(auxiliaryServicesItems)),
+            "virtualBatteries": JSON.parse(JSON.stringify(virtualBatteriesItems)),
             "capacity": parseInt(capacity),
             "currentRatioMethod": currentRatioMethod,
             "cvlMode": cvlMode,
@@ -571,28 +772,27 @@
             }
         }
 
-        // function batteriesToShortHandFormat(inputData, objectKey) {
-        //     if (inputData === null || inputData === undefined || inputData.length === 0) {
-        //         delete jsonObject[objectKey];
-        //     } else {
-        //         Object.entries(jsonObject.virtualBatteries).forEach(([key, value]) => {
-        //             let allSubItemsEmpty = true;
-        //             for (let subKey in value) {
-        //                 if (value[subKey].length > 0) {
-        //                     allSubItemsEmpty = false;
-        //                     break;
-        //                 }
-        //             }
-        //
-        //             // If all subItems arrays are empty, replace with an array of keys
-        //             if (allSubItemsEmpty) {
-        //                 jsonObject.virtualBatteries[key] = Object.keys(value);
-        //             }
-        //         });
-        //
-        //         console.log(jsonObject);
-        //     }
-        // }
+        Object.entries(jsonObject.virtualBatteries).map(([key, value]) => {
+            let allSubItemsEmpty = true;
+            for (let subKey in value) {
+                if (value[subKey].length > 0) {
+                    allSubItemsEmpty = false;
+                    break;
+                }
+            }
+
+            if (value.length === 0) {
+                delete jsonObject.virtualBatteries[key];
+            } else {
+                if (allSubItemsEmpty) {
+                    jsonObject.virtualBatteries[key] = Object.keys(value);
+                }
+            }
+        });
+
+        if (Object.keys(jsonObject.virtualBatteries).length === 0) {
+            delete jsonObject.virtualBatteries;
+        }
 
         if (excludedServices === null || excludedServices === undefined || excludedServices.length === 0) {
             delete jsonObject.excludedServices;

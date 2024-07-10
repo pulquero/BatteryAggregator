@@ -291,8 +291,8 @@ VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
 
 class IRData:
     def __init__(self):
-        self.value = None
-        self.err = None
+        self.value = 0
+        self.err = 0
         self.history = deque()
 
     def append_sample(self, voltage, current):

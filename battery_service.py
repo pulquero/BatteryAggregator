@@ -290,20 +290,19 @@ VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
 
 
 class IRData:
-    def __init__(self):
-        self.value = 0
+    def __init__(self, percentage_error, min_voltage_change):
+        self.ir = 0
+        self.emf = 0
         self.err = 0
+        self.percentage_error = percentage_error
+        self.min_voltage_change = min_voltage_change
         self.history = deque()
 
     def append_sample(self, voltage, current):
-        # must be discharging
-        if current >= 0:
-            return False, False
-
         if voltage <= 0:
             return False, False
 
-        if not self.history or abs(voltage - self.history[-1].voltage) >= MIN_VOLTAGE_DELTA:  # check for a significant change in voltage
+        if not self.history or abs(voltage - self.history[-1].voltage) >= self.min_voltage_change:  # check for a significant change in voltage
             self.history.append(VoltageSample(voltage, current))
             if len(self.history) > VOLTAGE_HISTORY_SIZE:
                 self.history.popleft()
@@ -332,9 +331,10 @@ class IRData:
                     ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
                     err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
 
-                    if ir > 0 and err/ir <= MAX_IR_ERROR_PERCENTAGE:
-                        has_changed = abs(ir - self.value) > math.hypot(err, self.err)
-                        self.value = ir
+                    if ir > 0 and err/ir <= self.percentage_error:
+                        has_changed = abs(ir - self.ir) > math.hypot(err, self.err)
+                        self.ir = ir
+                        self.emf = mean_v + mean_i * ir
                         self.err = err
                         return True, has_changed
 
@@ -356,6 +356,9 @@ class BatteryAggregatorService(SettableService):
 
         self._cvlMode = config.get("cvlMode", "max_when_balancing")
         self._currentRatioMethod = config.get("currentRatioMethod", "ir")
+        ir_config = config.get("ir", {})
+        self._ir_percentage_error = ir_config.get("maxPercentageError", MAX_IR_ERROR_PERCENTAGE)
+        self._ir_min_voltage_change = ir_config.get("minVoltageChange", MIN_VOLTAGE_DELTA)
 
         self._irs = {}
 
@@ -401,6 +404,9 @@ class BatteryAggregatorService(SettableService):
             aggr = BATTERY_PATHS[path].aggregatorClass()
             self.aggregators[path] = aggr
 
+    def _create_IRData(self):
+        return IRData(self._ir_percentage_error, self._ir_min_voltage_change)
+
     def _is_available(self, service_name):
         return service_name in self.monitor.servicesByName
 
@@ -417,6 +423,7 @@ class BatteryAggregatorService(SettableService):
             self.service.add_path("/InstalledCapacity", self._configuredCapacity, AMP_HOURS.gettextcallback)
         self.service.add_path("/System/Batteries", None)
         self.service.add_path("/System/InternalResistances", None)
+        self.service.add_path("/System/EMFs", None)
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
@@ -443,7 +450,7 @@ class BatteryAggregatorService(SettableService):
             paths_changed.add(path)
 
         for battery_name in self.battery_service_names:
-            self._irs[battery_name] = IRData()
+            self._irs[battery_name] = self._create_IRData()
 
         self._batteries_changed()
         self._refresh_values(paths_changed)
@@ -468,18 +475,22 @@ class BatteryAggregatorService(SettableService):
             irdata = self._irs[dbusServiceName]
             updated, changed = irdata.append_sample(voltage, current)
             if updated:
-                self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.value}+-{irdata.err}")
+                self.logger.info(f"Internal resistance for {dbusServiceName} @ {voltage}V is {irdata.ir}+-{irdata.err}")
                 self._refresh_internal_resistances()
                 if changed:
                     self._updateCLs()
 
     def _refresh_internal_resistances(self):
         irs = []
+        emfs = []
         for batteryName in self.battery_service_names:
             irdata = self._irs[batteryName]
-            ir = irdata.value if irdata else None
+            ir = irdata.ir if irdata else None
             irs.append(ir)
+            emf = irdata.emf if irdata else None
+            emfs.append(emf)
         self.service["/System/InternalResistances"] = json.dumps(irs)
+        self.service["/System/EMFs"] = json.dumps(emfs)
 
     def _refresh_value(self, dbusPath):
         v = self._primaryServices.get_value(dbusPath)
@@ -548,7 +559,7 @@ class BatteryAggregatorService(SettableService):
                 paths_changed = self._auxiliaryServices.init_values(dbusServiceName, self.monitor)
         elif is_battery_service_name(dbusServiceName):
             self.battery_service_names.append(dbusServiceName)
-            self._irs[dbusServiceName] = IRData()
+            self._irs[dbusServiceName] = self._create_IRData()
             if self._registered:
                 for path in self.aggregators:
                     self.aggregators[path].set(dbusServiceName, self.monitor.get_value(dbusServiceName, path))
@@ -597,8 +608,8 @@ class BatteryAggregatorService(SettableService):
         sum_ir_recip = 0
         for batteryName in batteries:
             irdata = self._irs[batteryName]
-            if irdata and irdata.value:
-                sum_ir_recip += 1/irdata.value
+            if irdata and irdata.ir:
+                sum_ir_recip += 1/irdata.ir
             else:
                 # missing IR - can't compute total IR
                 return None
@@ -636,8 +647,8 @@ class BatteryAggregatorService(SettableService):
 
             if method == "ir":
                 irdata = self._irs.get(batteryName)
-                if irdata and irdata.value and total_ir:
-                    ratio = irdata.value/total_ir
+                if irdata and irdata.ir and total_ir:
+                    ratio = irdata.ir/total_ir
                 else:
                     method = "capacity"
 

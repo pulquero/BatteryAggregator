@@ -291,12 +291,17 @@ VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
 
 class IRData:
     def __init__(self, percentage_error, min_voltage_change):
-        self.ir = 0
+        self._measured_ir = 0
+        self.correction = 1
         self.emf = 0
         self.err = 0
         self.percentage_error = percentage_error
         self.min_voltage_change = min_voltage_change
         self.history = deque()
+
+    @property
+    def ir(self):
+        return self.correction * self._measured_ir
 
     def append_sample(self, voltage, current):
         if voltage <= 0:
@@ -332,8 +337,8 @@ class IRData:
                     err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
 
                     if ir > 0 and err/ir <= self.percentage_error:
-                        has_changed = abs(ir - self.ir) > math.hypot(err, self.err)
-                        self.ir = ir
+                        has_changed = abs(ir - self._measured_ir) > math.hypot(err, self.err)
+                        self._measured_ir = ir
                         self.emf = mean_v + mean_i * ir
                         self.err = err
                         return True, has_changed
@@ -552,6 +557,9 @@ class BatteryAggregatorService(SettableService):
                     voltage = value
                     current = self.monitor.get_value(dbusServiceName, "/Dc/0/Current")
                     self._add_vi_sample(dbusServiceName, voltage, current)
+                elif dbusPath == "/Dc/0/Current" and self._currentRatioMethod == "ir":
+                    current = value
+                    self._adjust_ir(dbusServiceName, current)
 
         if self._registered:
             self._refresh_value(dbusPath)
@@ -768,6 +776,30 @@ class BatteryAggregatorService(SettableService):
                 cvl = None
 
         self.service["/Info/MaxChargeVoltage"] = cvl
+
+    def _adjust_ir(self, batteryName, current):
+        if current > 0:
+            is_charging = True
+        elif current < 0:
+            is_charging = False
+
+        if is_charging:
+            aggr_cl = self.aggregators["/Info/MaxChargeCurrent"]
+        else:
+            aggr_cl = self.aggregators["/Info/MaxDischargeCurrent"]
+
+        current_abs = abs(current)
+        cl = aggr_cl.values[batteryName]
+        if cl and current_abs > cl:
+            irdata = self._irs[batteryName]
+            if irdata and irdata.ir:
+                old_ir = irdata.ir
+                irdata.correction *= cl/current_abs
+                self.logger.info(f"Correcting over-current ({current_abs} > {cl}) for battery {batteryName}: adjusting IR {old_ir} -> {irdata.ir}")
+                if is_charging:
+                    self._updateCCL()
+                else:
+                    self._updateDCL()
 
     def __str__(self):
         return self._serviceName

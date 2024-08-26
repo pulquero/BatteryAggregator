@@ -410,6 +410,14 @@ class BatteryAggregatorService(SettableService):
     def _is_available(self, service_name):
         return service_name in self.monitor.servicesByName
 
+    def has_valid_batteries(self):
+        detected_voltage = None
+        for battery_name in self.battery_service_names:
+            value = self.monitor.get_value(battery_name, "/Dc/0/Voltage")
+            if value:
+                detected_voltage = value
+        return bool(detected_voltage)
+
     def register(self, timeout):
         self.service = VeDbusService(self._serviceName, self._conn)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
@@ -903,7 +911,7 @@ def main(virtualBatteryName=None):
         def wait_for_batteries():
             nonlocal attempts
             logger.info(f"Waiting for batteries (attempt {attempts+1} of {max_attempts})...")
-            if len(batteryAggr.battery_service_names) > 0:
+            if batteryAggr.has_valid_batteries():
                 batteryAggr.register(timeout=15)
                 logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
                 return False

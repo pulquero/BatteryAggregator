@@ -782,6 +782,8 @@ class BatteryAggregatorService(SettableService):
             is_charging = True
         elif current < 0:
             is_charging = False
+        else:
+            return
 
         if is_charging:
             aggr_cl = self.aggregators["/Info/MaxChargeCurrent"]

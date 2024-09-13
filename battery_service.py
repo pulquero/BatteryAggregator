@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 import multiprocessing
 import signal
+from pydoc import locate
 
 DEFAULT_SERVICE_NAME = 'com.victronenergy.battery.aggregator'
 DEVICE_INSTANCE_ID = 1024
@@ -57,6 +58,10 @@ def dbusConnection():
 
 def is_battery_service_name(service_name):
     return service_name.startswith("com.victronenergy.battery.")
+
+
+def is_hook(service_name):
+    return service_name.startswith("class:")
 
 
 VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
@@ -808,19 +813,28 @@ class BatteryAggregatorService(SettableService):
 
 
 class VirtualBatteryService(SettableService):
-    def __init__(self, conn, serviceName, config):
+    def __init__(self, conn, serviceName, config, hook_config):
         super().__init__()
+        if not is_battery_service_name(serviceName):
+            raise ValueError(f"Invalid service name: {serviceName}")
+
         self.logger = logging.getLogger(serviceName)
         self.service = None
         self._registered = False
         self._conn = conn
         self._serviceName = serviceName
 
-        for name in [serviceName] + list(config):
-            if not is_battery_service_name(name):
+        for name in list(config):
+            if not is_battery_service_name(name) and not is_hook(name):
                 raise ValueError(f"Invalid service name: {name}")
 
         self._mergedServices = DataMerger(config)
+
+        self.hooks = []
+        for name in list(config):
+            if is_hook(name):
+                class_name = name[len("class:"):]
+                self.hooks.append(locate(class_name)(name, self._mergedServices, **hook_config.get(class_name, {})))
 
         options = None  # currently not used afaik
         self.monitor = DbusMonitor(
@@ -830,7 +844,7 @@ class VirtualBatteryService(SettableService):
             valueChangedCallback=self._battery_value_changed,
             deviceAddedCallback=self._battery_added,
             deviceRemovedCallback=self._battery_removed,
-            includedServiceNames=self._mergedServices.service_names,
+            includedServiceNames=[service_name for service_name in self._mergedServices.service_names if is_battery_service_name(service_name)],
             excludedServiceNames=[serviceName]
         )
         self.battery_service_names = [service_name for service_name in self.monitor.servicesByName]
@@ -852,6 +866,10 @@ class VirtualBatteryService(SettableService):
             changed = self._mergedServices.init_values(batteryName, self.monitor)
             paths_changed.update(changed)
 
+        for hook in reversed(self.hooks):
+            changed = hook.init_values(self.monitor)
+            paths_changed.update(changed)
+
         self._batteries_changed()
         self._refresh_values(paths_changed)
 
@@ -866,7 +884,15 @@ class VirtualBatteryService(SettableService):
         if self._registered:
             value = changes['Value']
             self._mergedServices.update_service_value(dbusServiceName, dbusPath, value)
-            self.service[dbusPath] = self._mergedServices.get_value(dbusPath)
+            if self.hooks:
+                paths_changed = set()
+                paths_changed.add(dbusPath)
+                for hook in reversed(self.hooks):
+                    changed = hook.update_service_value(dbusServiceName, dbusPath, value)
+                    paths_changed.update(changed)
+                self._refresh_values(paths_changed)
+            else:
+                self.service[dbusPath] = self._mergedServices.get_value(dbusPath)
 
     def _battery_added(self, dbusServiceName, deviceInstance):
         self.logger.debug(f"Battery added: {dbusServiceName}")
@@ -914,7 +940,7 @@ def main(virtualBatteryName=None):
     virtualBatteryConfigs = config.get("virtualBatteries", {})
     if virtualBatteryName:
         virtualBatteryConfig = virtualBatteryConfigs[virtualBatteryName]
-        virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig)
+        virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig, config.get("classes"))
         virtualBattery.register(timeout=15)
         logger.info(f"Registered Virtual Battery {virtualBattery.service.serviceName}")
     else:

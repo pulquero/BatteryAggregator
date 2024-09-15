@@ -11,7 +11,6 @@ from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
-from settingsdevice import SettingsDevice
 from settableservice import SettableService
 from collections import deque, namedtuple
 import math
@@ -404,7 +403,7 @@ class BatteryAggregatorService(SettableService):
             valueChangedCallback=self._service_value_changed,
             deviceAddedCallback=self._battery_added,
             deviceRemovedCallback=self._battery_removed,
-            excludedServiceNames=excludedServices
+            ignoreServices=excludedServices
         )
 
         self.battery_service_names = [service_name for service_name in self.monitor.servicesByName if is_battery_service_name(service_name) and service_name not in otherServiceNames]
@@ -429,9 +428,10 @@ class BatteryAggregatorService(SettableService):
         return bool(detected_voltage)
 
     def register(self, timeout):
-        self.service = VeDbusService(self._serviceName, self._conn)
+        self.service = VeDbusService(self._serviceName, self._conn, register=False)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.service.register()
         self.add_settable_path("/CustomName", "")
         self.service.add_path("/LogLevel", "INFO", writeable=True, onchangecallback=lambda path, newValue: self._change_log_level(newValue))
         for path, aggr in self.aggregators.items():
@@ -845,15 +845,16 @@ class VirtualBatteryService(SettableService):
             deviceAddedCallback=self._battery_added,
             deviceRemovedCallback=self._battery_removed,
             includedServiceNames=[service_name for service_name in self._mergedServices.service_names if is_battery_service_name(service_name)],
-            excludedServiceNames=[serviceName]
+            ignoreServices=[serviceName]
         )
         self.battery_service_names = [service_name for service_name in self.monitor.servicesByName]
 
     def register(self, timeout=0):
-        self.service = VeDbusService(self._serviceName, self._conn)
+        self.service = VeDbusService(self._serviceName, self._conn, register=False)
         id_offset = hashlib.sha1(self._serviceName.split('.')[-1].encode('utf-8')).digest()[0]
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', BASE_DEVICE_INSTANCE_ID + id_offset,
                                      0, "Virtual Battery", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
+        self.service.register()
         self.add_settable_path("/CustomName", "")
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
@@ -942,7 +943,7 @@ def main(virtualBatteryName=None):
         virtualBatteryConfig = virtualBatteryConfigs[virtualBatteryName]
         virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig, config.get("classes"))
         virtualBattery.register(timeout=15)
-        logger.info(f"Registered Virtual Battery {virtualBattery.service.serviceName}")
+        logger.info(f"Registered Virtual Battery {virtualBattery.service.name}")
     else:
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         processes = []
@@ -973,7 +974,7 @@ def main(virtualBatteryName=None):
             logger.info(f"Waiting for batteries (attempt {attempts+1} of {max_attempts})...")
             if batteryAggr.has_valid_batteries():
                 batteryAggr.register(timeout=15)
-                logger.info(f"Registered Battery Aggregator {batteryAggr.service.serviceName}")
+                logger.info(f"Registered Battery Aggregator {batteryAggr.service.name}")
                 return False
             else:
                 attempts += 1

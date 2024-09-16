@@ -58,6 +58,10 @@ To create a virtual battery by merging two (or more) other batteries, add:
 
 note, empty array `[]` means include all paths)
 
+## Service names
+
+Instead of service names, you can use custom names by prepending the custom name with `name:`, e.g. `"name:My Battery"` instead of `"com.victronenergy.battery.ttyS7"`.
+
 ## Charging parameters
 
 ### CCL

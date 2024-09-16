@@ -10,6 +10,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
+from ve_utils import unwrap_dbus_value
 from dbusmonitor import DbusMonitor
 from settableservice import SettableService
 from collections import deque, namedtuple
@@ -61,6 +62,10 @@ def is_battery_service_name(service_name):
 
 def is_hook(service_name):
     return service_name.startswith("class:")
+
+
+def is_name(service_name):
+    return service_name.startswith("name:")
 
 
 VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
@@ -232,16 +237,16 @@ BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
 
 
 class DataMerger:
-    def __init__(self, config):
+    def __init__(self, config, service_name_resolver):
         if isinstance(config, list):
             # convert short-hand format
-            expanded_config = {serviceName: list(BATTERY_PATHS) for serviceName in config}
+            expanded_config = {service_name_resolver.resolve_service_name(serviceName): list(BATTERY_PATHS) for serviceName in config}
         elif isinstance(config, dict):
             expanded_config = {}
             for k, v in config.items():
                 if not v:
                     v = list(BATTERY_PATHS)
-                expanded_config[k] = v
+                expanded_config[service_name_resolver.resolve_service_name(k)] = v
         elif config is None:
             expanded_config = {}
         else:
@@ -288,6 +293,29 @@ class DataMerger:
                 if v is not None:
                     return v
         return None
+
+
+class ServiceNameResolver:
+    def __init__(self, conn):
+        self.conn = conn
+        self._custom_names = None
+
+    def _get_custom_names(self):
+        if self._custom_names is None:
+            self._custom_names = {}
+            service_names = self.conn.list_names()
+            for service_name in service_names:
+                custom_name = self.conn.call_blocking(service_name, "/CustomName", None, "GetValue", "", [])
+                self._custom_names[custom_name] = service_name
+        return self._custom_names
+
+    def resolve_service_name(self, name):
+        if is_name(name):
+            service_name = self._get_custom_names().get(name)
+            if not service_name:
+                raise ValueError(f"Unknown name: {name}")
+        else:
+            return name
 
 
 VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
@@ -376,8 +404,9 @@ class BatteryAggregatorService(SettableService):
             scanPaths.remove('/InstalledCapacity')
             scanPaths.remove('/Capacity')
 
-        self._primaryServices = DataMerger(config.get("primaryServices"))
-        self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"))
+        serviceNameResolver = ServiceNameResolver(conn)
+        self._primaryServices = DataMerger(config.get("primaryServices"), serviceNameResolver)
+        self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"), serviceNameResolver)
         otherServiceNames = set()
         otherServiceNames.add("com.victronenergy.system")
         otherServiceNames.add("com.victronenergy.settings")
@@ -385,7 +414,8 @@ class BatteryAggregatorService(SettableService):
         otherServiceNames.update(self._auxiliaryServices.service_names)
 
         excludedServices = [serviceName]
-        excludedServices.extend(config.get("excludedServices", []))
+        for service_name in config.get("excludedServices", []):
+            excludedServices.append(serviceNameResolver.resolve_service_name(service_name))
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
             excludedServices.extend(virtualBatteryConfig)
@@ -431,7 +461,6 @@ class BatteryAggregatorService(SettableService):
         self.service = VeDbusService(self._serviceName, self._conn, register=False)
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
                                      0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
-        self.service.register()
         self.add_settable_path("/CustomName", "")
         self.service.add_path("/LogLevel", "INFO", writeable=True, onchangecallback=lambda path, newValue: self._change_log_level(newValue))
         for path, aggr in self.aggregators.items():
@@ -473,6 +502,7 @@ class BatteryAggregatorService(SettableService):
         self._batteries_changed()
         self._refresh_values(paths_changed)
 
+        self.service.register()
         self._registered = True
 
     def _change_log_level(self, value):
@@ -825,10 +855,10 @@ class VirtualBatteryService(SettableService):
         self._serviceName = serviceName
 
         for name in list(config):
-            if not is_battery_service_name(name) and not is_hook(name):
+            if not is_battery_service_name(name) and not is_hook(name) and not is_name(name):
                 raise ValueError(f"Invalid service name: {name}")
 
-        self._mergedServices = DataMerger(config)
+        self._mergedServices = DataMerger(config, ServiceNameResolver(conn))
 
         self.hooks = []
         for name in list(config):
@@ -854,7 +884,6 @@ class VirtualBatteryService(SettableService):
         id_offset = hashlib.sha1(self._serviceName.split('.')[-1].encode('utf-8')).digest()[0]
         self.service.add_mandatory_paths(__file__, VERSION, 'dbus', BASE_DEVICE_INSTANCE_ID + id_offset,
                                      0, "Virtual Battery", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
-        self.service.register()
         self.add_settable_path("/CustomName", "")
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
@@ -874,6 +903,7 @@ class VirtualBatteryService(SettableService):
         self._batteries_changed()
         self._refresh_values(paths_changed)
 
+        self.service.register()
         self._registered = True
 
     def _refresh_values(self, paths_changed):

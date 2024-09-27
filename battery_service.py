@@ -363,9 +363,9 @@ class IRData:
                     var_iv += 2 * (sample.voltage - mean_v) * (sample.current - mean_i)
 
                 if var_iv:
-                    k = var_v - var_i
+                    k = (var_v - var_i)/var_iv
 
-                    ir = (k + math.sqrt(k**2 + var_iv**2))/var_iv
+                    ir = k + math.sqrt(k**2 + 1)
                     err = math.sqrt((ir**2 * var_i - ir * var_iv + var_v)/(N-2)) * (1 + ir**2)/math.sqrt(ir**2 * var_v + ir * var_iv + var_i)
 
                     if ir > 0 and err/ir <= self.percentage_error:

@@ -813,6 +813,9 @@ class BatteryAggregatorService(SettableService):
         self.service["/Info/MaxChargeVoltage"] = cvl
 
     def _adjust_ir(self, batteryName, current):
+        if current is None:
+            return
+
         if current > 0:
             is_charging = True
         elif current < 0:

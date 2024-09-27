@@ -64,6 +64,9 @@ if [ $scriptAction == 'INSTALL' ] ; then
 
 	logMessage "++ Installing Battery Aggregator service"
 
+	opkg update
+	opkg install python3-pip python3-pydoc
+
 	mkdir -p "$pythonLibs"
 	extInstall "https://github.com/pulquero/velib_python" "velib_python" "master" "/"
 

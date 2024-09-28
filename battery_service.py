@@ -13,6 +13,7 @@ from vedbus import VeDbusService
 from ve_utils import unwrap_dbus_value
 from dbusmonitor import DbusMonitor
 from settableservice import SettableService
+from data_merger import DataMerger
 from collections import deque, namedtuple
 import math
 import functools
@@ -236,65 +237,6 @@ ACTIVE_BATTERY_PATHS = {
 BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
 
 
-class DataMerger:
-    def __init__(self, config, service_name_resolver):
-        if isinstance(config, list):
-            # convert short-hand format
-            expanded_config = {service_name_resolver.resolve_service_name(serviceName): list(BATTERY_PATHS) for serviceName in config}
-        elif isinstance(config, dict):
-            expanded_config = {}
-            for k, v in config.items():
-                if not v:
-                    v = list(BATTERY_PATHS)
-                expanded_config[service_name_resolver.resolve_service_name(k)] = v
-        elif config is None:
-            expanded_config = {}
-        else:
-            raise ValueError(f"Unsupported config object: {type(config)}")
-
-        self.service_names = list(expanded_config)
-
-        self.data_by_path = {}
-        for service_name, path_list in expanded_config.items():
-            for p in path_list:
-                path_values = self.data_by_path.get(p)
-                if path_values is None:
-                    path_values = {}
-                    self.data_by_path[p] = path_values
-                path_values[service_name] = None
-
-    def init_values(self, service_name, api):
-        paths_changed = []
-        for p, path_values in self.data_by_path.items():
-            if service_name in path_values:
-                path_values[service_name] = api.get_value(service_name, p)
-                paths_changed.append(p)
-        return paths_changed
-
-    def clear_values(self, service_name):
-        paths_changed = []
-        for p, path_values in self.data_by_path.items():
-            if service_name in path_values:
-                path_values[service_name] = None
-                paths_changed.append(p)
-        return paths_changed
-
-    def update_service_value(self, service_name, path, value):
-        path_values = self.data_by_path.get(path)
-        if path_values:
-            if service_name in path_values:
-                path_values[service_name] = value
-
-    def get_value(self, path):
-        path_values = self.data_by_path.get(path)
-        if path_values:
-            for service_name in self.service_names:
-                v = path_values.get(service_name)
-                if v is not None:
-                    return v
-        return None
-
-
 class ServiceNameResolver:
     def __init__(self, conn):
         self.conn = conn
@@ -405,8 +347,9 @@ class BatteryAggregatorService(SettableService):
             scanPaths.remove('/Capacity')
 
         serviceNameResolver = ServiceNameResolver(conn)
-        self._primaryServices = DataMerger(config.get("primaryServices"), serviceNameResolver)
-        self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"), serviceNameResolver)
+        default_config_paths = list(BATTERY_PATHS)
+        self._primaryServices = DataMerger(config.get("primaryServices"), default_config_paths, serviceNameResolver)
+        self._auxiliaryServices = DataMerger(config.get("auxiliaryServices"), default_config_paths, serviceNameResolver)
         otherServiceNames = set()
         otherServiceNames.add("com.victronenergy.system")
         otherServiceNames.add("com.victronenergy.settings")
@@ -861,7 +804,8 @@ class VirtualBatteryService(SettableService):
             if not is_battery_service_name(name) and not is_hook(name) and not is_name(name):
                 raise ValueError(f"Invalid service name: {name}")
 
-        self._mergedServices = DataMerger(config, ServiceNameResolver(conn))
+        default_config_paths = list(BATTERY_PATHS)
+        self._mergedServices = DataMerger(config, default_config_paths, ServiceNameResolver(conn))
 
         self.hooks = []
         for name in list(config):
@@ -900,7 +844,7 @@ class VirtualBatteryService(SettableService):
             paths_changed.update(changed)
 
         for hook in reversed(self.hooks):
-            changed = hook.init_values(self.monitor)
+            changed = hook.init_values()
             paths_changed.update(changed)
 
         self._batteries_changed()

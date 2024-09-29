@@ -1,4 +1,17 @@
-class CustomNameHook:
+
+class Hook:
+    @staticmethod
+    def is_hook(service_name):
+        return service_name.startswith("class:")
+
+    def init_values(self):
+        ...
+
+    def update_service_value(self, dbusServiceName, dbusPath, value):
+        ...
+
+
+class CustomNameHook(Hook):
     def __init__(self, service_name, merger, customName):
         self.service_name = service_name
         self.merger = merger
@@ -13,7 +26,7 @@ class CustomNameHook:
         return []
 
 
-class CustomChargingHook:
+class CustomChargingHook(Hook):
     def __init__(self, service_name, merger, ccls=None, dcls=None):
         self.service_name = service_name
         self.merger = merger

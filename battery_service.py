@@ -5,15 +5,17 @@ import sys
 from script_utils import SCRIPT_HOME, VERSION
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), f"{SCRIPT_HOME}/ext"))
 
-import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
 from ve_utils import unwrap_dbus_value
-from dbusmonitor import DbusMonitor, VE_INTERFACE
+from dbus_utils import dbusConnection
+from dbusmonitor import DbusMonitor
 from settableservice import SettableService
 from data_merger import DataMerger
+from service_name_resolver import ServiceNameResolver
+from hooks import Hook
 from collections import deque, namedtuple
 import math
 import functools
@@ -43,30 +45,8 @@ MAX_IR_ERROR_PERCENTAGE = 0.1
 logging.basicConfig(level=logging.INFO)
 
 
-class SystemBus(dbus.bus.BusConnection):
-    def __new__(cls):
-        return dbus.bus.BusConnection.__new__(cls, dbus.bus.BusConnection.TYPE_SYSTEM)
-
-
-class SessionBus(dbus.bus.BusConnection):
-    def __new__(cls):
-        return dbus.bus.BusConnection.__new__(cls, dbus.bus.BusConnection.TYPE_SESSION)
-
-
-def dbusConnection():
-    return SessionBus() if 'DBUS_SESSION_BUS_ADDRESS' in os.environ else SystemBus()
-
-
 def is_battery_service_name(service_name):
     return service_name.startswith("com.victronenergy.battery.")
-
-
-def is_hook(service_name):
-    return service_name.startswith("class:")
-
-
-def is_name(service_name):
-    return service_name.startswith("name:")
 
 
 VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
@@ -235,29 +215,6 @@ ACTIVE_BATTERY_PATHS = {
 }
 
 BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
-
-
-class ServiceNameResolver:
-    def __init__(self, conn):
-        self.conn = conn
-        self._custom_names = None
-
-    def _get_custom_names(self):
-        if self._custom_names is None:
-            self._custom_names = {}
-            service_names = self.conn.list_names()
-            for service_name in service_names:
-                custom_name = self.conn.call_blocking(service_name, "/CustomName", VE_INTERFACE, "GetValue", "", [])
-                self._custom_names[custom_name] = service_name
-        return self._custom_names
-
-    def resolve_service_name(self, name):
-        if is_name(name):
-            service_name = self._get_custom_names().get(name)
-            if not service_name:
-                raise ValueError(f"Unknown name: {name}")
-        else:
-            return name
 
 
 VoltageSample = namedtuple("VoltageSample", ["voltage", "current"])
@@ -801,7 +758,7 @@ class VirtualBatteryService(SettableService):
         self._serviceName = serviceName
 
         for name in list(config):
-            if not is_battery_service_name(name) and not is_hook(name) and not is_name(name):
+            if not is_battery_service_name(name) and not Hook.is_hook(name) and not ServiceNameResolver.is_name(name):
                 raise ValueError(f"Invalid service name: {name}")
 
         default_config_paths = list(BATTERY_PATHS)
@@ -809,7 +766,7 @@ class VirtualBatteryService(SettableService):
 
         self.hooks = []
         for name in list(config):
-            if is_hook(name):
+            if Hook.is_hook(name):
                 class_name = name[len("class:"):]
                 self.hooks.append(locate(class_name)(name, self._mergedServices, **hook_config.get(class_name, {})))
 

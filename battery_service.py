@@ -11,7 +11,7 @@ from gi.repository import GLib
 import logging
 from vedbus import VeDbusService
 from ve_utils import unwrap_dbus_value
-from dbusmonitor import DbusMonitor
+from dbusmonitor import DbusMonitor, VE_INTERFACE
 from settableservice import SettableService
 from data_merger import DataMerger
 from collections import deque, namedtuple
@@ -247,7 +247,7 @@ class ServiceNameResolver:
             self._custom_names = {}
             service_names = self.conn.list_names()
             for service_name in service_names:
-                custom_name = self.conn.call_blocking(service_name, "/CustomName", None, "GetValue", "", [])
+                custom_name = self.conn.call_blocking(service_name, "/CustomName", VE_INTERFACE, "GetValue", "", [])
                 self._custom_names[custom_name] = service_name
         return self._custom_names
 

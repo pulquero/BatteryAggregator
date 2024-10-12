@@ -767,8 +767,10 @@ class VirtualBatteryService(SettableService):
         self.hooks = []
         for name in list(config):
             if Hook.is_hook(name):
-                class_name = name[len("class:"):]
-                self.hooks.append(locate(class_name)(name, self._mergedServices, **hook_config.get(class_name, {})))
+                class_instance = name[len("class:"):]
+                pos = class_instance.rfind('#')
+                class_name = class_instance[:pos] if pos >= 0 else class_instance
+                self.hooks.append(locate(class_name)(name, self._mergedServices, **hook_config.get(class_instance, {})))
 
         options = None  # currently not used afaik
         self.monitor = DbusMonitor(

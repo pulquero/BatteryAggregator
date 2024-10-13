@@ -696,8 +696,14 @@ class BatteryAggregatorService(SettableService):
             op = min
 
         if op is not None:
+            aggr_allow = self.aggregators["/Io/AllowToCharge"]
+            aggr_soc = self.aggregators["/Soc"]
+            chargingBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0 and aggr_soc.values.get(batteryName, 0) < 99]
+            self.logger.info(f"Charging batteries: {chargingBatteries}")
+
             cvlPerBattery = []
-            for cvl in aggr_cvl.values.values():
+            for batteryName in chargingBatteries:
+                cvl = aggr_cvl.values.get(batteryName)
                 if cvl is not None:
                     cvlPerBattery.append(cvl)
     

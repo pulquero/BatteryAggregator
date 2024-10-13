@@ -147,6 +147,14 @@ class AvailableAggregator(AbstractAggregator):
         return self.get_value_count()
 
 
+class NoOpAggregator(AbstractAggregator):
+    def __init__(self):
+        super().__init__(initial_value=None)
+
+    def get_result(self):
+        return None
+
+
 SumAggregator = functools.partial(Aggregator, _sum, initial_value=0)
 MinAggregator = functools.partial(Aggregator, _safe_min)
 MaxAggregator = functools.partial(Aggregator, _safe_max)
@@ -180,6 +188,7 @@ AGGREGATED_BATTERY_PATHS = {
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator),
     '/Balancing': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
+    '/Info/ChargeMode': PathDefinition(NO_UNIT, NoOpAggregator),  # dbus-serialbattery
     '/Io/AllowToCharge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToBalance': PathDefinition(NO_UNIT, BooleanAggregator),
@@ -697,10 +706,20 @@ class BatteryAggregatorService(SettableService):
 
         if op is not None:
             cvlPerBattery = []
-            for cvl in aggr_cvl.values.values():
+            chargingCVLs = []
+            aggr_cm = self.aggregators["/Info/ChargeMode"]
+            for batteryName, cvl in aggr_cvl.values.items():
+                cm = aggr_cm.values.get(batteryName)
+                self.logger.debug(f"Charge mode for {batteryName}: {cm}")
                 if cvl is not None:
                     cvlPerBattery.append(cvl)
-    
+                    if cm is not None and not "float" in cm.lower():
+                        chargingCVLs.append(cvl)
+
+            if chargingCVLs:
+                cvlPerBattery = chargingCVLs
+
+            self.logger.debug(f"Battery CVL: {op.__name__} of {cvlPerBattery}")
             if cvlPerBattery:
                 cvl = op(cvlPerBattery)
                 if self._is_dvcc():

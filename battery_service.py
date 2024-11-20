@@ -578,7 +578,7 @@ class BatteryAggregatorService(SettableService):
             if allowSupported is not None:
                 total_cap = 0
                 for batteryName in connectedBatteries:
-                    cap = aggr_cap.values.get(batteryName)
+                    cap = aggr_cap.values.get(batteryName) if aggr_cap else None
                     if cap is None:
                         self.logger.warning(f"/InstalledCapacity is not available for {batteryName}")
                         total_cap = None

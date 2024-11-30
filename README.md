@@ -26,6 +26,7 @@ To post-merge information from other services (e.g. a shunt), add:
 		"primaryServices": {"com.victronenergy.battery.ttyS5": ["/Soc"], "com.victronenergy.battery.leastPrecedence": ["/Dc/0/Current"]}
 
 (use SoC from the shunt, and current from the BMS with service name `com.victronenergy.battery.leastPrecedence`).
+Primary services are automatically excluded - do not add them to `excludedServices`.
 
 To pre-merge information from other services, add:
 
@@ -36,6 +37,7 @@ To pre-merge information from other services, add:
 		"auxiliaryServices": {"com.victronenergy.battery.dev1": ["/Info/Location"]}
 
 )
+Auxiliary services are automatically excluded - do not add them to `excludedServices`.
 
 To set the installed capacity (if it is not available via aggregation), add:
 

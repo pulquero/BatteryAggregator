@@ -70,7 +70,7 @@ Instead of service names, you can use custom names by prepending the custom name
 
 There are three ways to calculate the CCL:
 
-"ir" - sample V and I during discharge to determine the individual internal resistances. Best with a good shunt to give good measurements,
+"ir" (default) - sample V and I during discharge to determine the individual internal resistances. Best with a good shunt to give good measurements,
 useful with batteries of different capacities and ages. Note: until enough samples have been built up, the second method below is used.
 
 "capacity" - generally, battery capacity is inversely proportional to internal resistance. Useful with batteries of different capacities.

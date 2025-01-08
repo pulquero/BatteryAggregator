@@ -11,16 +11,17 @@ class Hook:
         ...
 
 
-class CustomNameHook(Hook):
-    def __init__(self, service_name, merger, customName):
+class FixedValueHook(Hook):
+    def __init__(self, service_name, merger, path, value=None):
         self.service_name = service_name
         self.merger = merger
-        self.customName = customName
-        self.merger.data_by_path["/CustomName"] = {service_name: None}
+        self.path = path
+        self.value = value
+        self.merger.data_by_path[path] = {service_name: None}
 
     def init_values(self):
-        self.merger.update_service_value(self.service_name, "/CustomName", self.customName)
-        return ["/CustomName"]
+        self.merger.update_service_value(self.service_name, self.path, self.value)
+        return [self.path]
 
     def update_service_value(self, dbusServiceName, dbusPath, value):
         return []

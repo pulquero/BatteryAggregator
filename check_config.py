@@ -2,6 +2,8 @@ import json
 import jsonschema
 from jsonschema import validate
 from pathlib import Path
+import sys
+
 
 # Define the JSON schema for validation
 schema = {
@@ -30,6 +32,9 @@ schema = {
                 ]
             }
         },
+        "classes": {
+            "type": "object"
+        },
         "currentRatioMethod": {"type": "string", "enum": ["ir", "capacity", "count"]},
         "cvlMode": {"type": "string", "enum": ["max_when_balancing", "min_when_balancing", "max_always", "dvcc"]},
         "logLevel": {"type": "string", "enum": ["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]}
@@ -53,9 +58,7 @@ def validate_json(json_data):
     return True, False, "JSON data is schema compliant"
 
 
-def check_json_file():
-    setup_options = Path("/data/setupOptions/BatteryAggregator")
-    config_file = setup_options/"config.json"
+def check_json_file(config_file):
 
     def dict_raise_on_duplicates(ordered_pairs):
         d = {}
@@ -76,8 +79,14 @@ def check_json_file():
     return validate_json(data)
 
 
+if len(sys.argv) > 1:
+    config_file = sys.argv[1]
+else:
+    setup_options = Path("/data/setupOptions/BatteryAggregator")
+    config_file = setup_options/"config.json"
+
 # Check the JSON Config file
-is_valid, is_warning, message = check_json_file()
+is_valid, is_warning, message = check_json_file(config_file)
 if is_warning:
     print("WARNING: Could not find config file: " + message)
 elif is_valid:

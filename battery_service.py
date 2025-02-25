@@ -359,9 +359,11 @@ class BatteryAggregatorService(SettableService):
 
     def register(self, timeout):
         self.service = VeDbusService(self._serviceName, self._conn, register=False)
-        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', DEVICE_INSTANCE_ID,
-                                     0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.add_settable_path("/CustomName", "")
+        self._init_settings(self._conn, timeout=timeout)
+        di = self.register_device_instance("battery", "BatteryAggregator", DEVICE_INSTANCE_ID)
+        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', di,
+                                     0, "Battery Aggregator", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.service.add_path("/LogLevel", "INFO", writeable=True, onchangecallback=lambda path, newValue: self._change_log_level(newValue))
         for path, aggr in self.aggregators.items():
             defn = BATTERY_PATHS[path]
@@ -374,8 +376,6 @@ class BatteryAggregatorService(SettableService):
         self.service.add_path("/System/NrOfBatteries", 0)
         self.service.add_path("/System/BatteriesParallel", 0)
         self.service.add_path("/System/BatteriesSeries", 1)
-
-        self._init_settings(self._conn, timeout=timeout)
 
         # initial values
         paths_changed = set()
@@ -787,15 +787,15 @@ class VirtualBatteryService(SettableService):
 
     def register(self, timeout=0):
         self.service = VeDbusService(self._serviceName, self._conn, register=False)
-        id_offset = hashlib.sha1(self._serviceName.split('.')[-1].encode('utf-8')).digest()[0]
-        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', BASE_DEVICE_INSTANCE_ID + id_offset,
-                                     0, "Virtual Battery", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         self.add_settable_path("/CustomName", "")
+        self._init_settings(self._conn, timeout=timeout)
+        id_offset = hashlib.sha1(self._serviceName.split('.')[-1].encode('utf-8')).digest()[0]
+        di = self.register_device_instance("battery", f"virtbatt_{id_offset}", BASE_DEVICE_INSTANCE_ID + id_offset)
+        self.service.add_mandatory_paths(__file__, VERSION, 'dbus', di,
+                                     0, "Virtual Battery", FIRMWARE_VERSION, HARDWARE_VERSION, CONNECTED)
         for path, defn in BATTERY_PATHS.items():
             self.service.add_path(path, None, gettextcallback=defn.unit.gettextcallback)
         self.service.add_path("/System/Batteries", json.dumps(list(self.battery_service_names)))
-
-        self._init_settings(self._conn, timeout=timeout)
 
         paths_changed = set()
         for batteryName in self.battery_service_names:

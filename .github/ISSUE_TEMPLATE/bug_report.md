@@ -13,6 +13,8 @@ Hardware: Cerbo/RPi???
 
 Setup: DVCC?
 
+Please provide config.
+
 Please provide output from dbus-spy.
 
 Please attach any relevant logs. Log location is `/var/log/BatteryAggregator/current`.

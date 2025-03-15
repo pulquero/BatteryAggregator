@@ -147,6 +147,45 @@ class AvailableAggregator(AbstractAggregator):
         return self.get_value_count()
 
 
+class ChargeModeAggregator(AbstractAggregator):
+    def __init__(self):
+        super().__init__(initial_value=None)
+
+    def get_result(self):
+        bulk_count = 0
+        absorption_count = 0
+        float_count = 0
+        total_count = 0
+        for v in self.values.values():
+            if v is not None:
+                total_count += 1
+                cm = v.lower()
+                if "bulk" in cm:
+                    bulk_count += 1
+                elif "absorption" in cm:
+                    absorption_count += 1
+                elif "float" in cm:
+                    float_count += 1
+
+        if total_count > 0:
+            if float_count == total_count:
+                return "Float"
+            elif float_count > 0:
+                return "Float Transition"
+            elif absorption_count == total_count:
+                return "Absorption"
+            elif absorption_count > 0:
+                return "Absorption Transition"
+            elif bulk_count == total_count:
+                return "Bulk"
+            elif bulk_count > 0:
+                return "Bulk Transition"
+            else:
+                return "Charging"
+        else:
+            return None
+
+
 class NoOpAggregator(AbstractAggregator):
     def __init__(self):
         super().__init__(initial_value=None)
@@ -188,7 +227,7 @@ AGGREGATED_BATTERY_PATHS = {
     '/ConsumedAmphours': PathDefinition(AMP_HOURS, SumAggregator),
     '/Balancing': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Info/BatteryLowVoltage': PathDefinition(VOLTAGE, MaxAggregator),
-    '/Info/ChargeMode': PathDefinition(NO_UNIT, NoOpAggregator),  # dbus-serialbattery
+    '/Info/ChargeMode': PathDefinition(NO_UNIT, ChargeModeAggregator),  # dbus-serialbattery
     '/Io/AllowToCharge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToBalance': PathDefinition(NO_UNIT, BooleanAggregator),

@@ -737,6 +737,8 @@ class BatteryAggregatorService(SettableService):
             op = max
         elif self._cvlMode == "max_when_balancing":
             op = max if self.service["/Balancing"] == 1 else min
+        elif self._cvlMode == "max_when_floating":
+            op = max if self.service["/Info/ChargeMode"] == "Float" else min
         elif self._cvlMode == "dvcc":
             op = None
             cvl = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)

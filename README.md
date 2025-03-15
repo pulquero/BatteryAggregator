@@ -91,6 +91,8 @@ There are four ways to calculate the CVL:
 
 "max_always" - always use the max value of all the batteries.
 
+"max_when_floating" - use the min value of all the batteries, but when floating use the max (requires batteries to have `/Info/ChargeMode`).
+
 "dvcc" - track the DVCC value (`com.victronenergy.settings/Settings/SystemSetup/MaxChargeVoltage`).
 
 For example, to use "min_when_balancing", add the following:

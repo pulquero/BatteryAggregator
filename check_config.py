@@ -36,7 +36,7 @@ schema = {
             "type": "object"
         },
         "currentRatioMethod": {"type": "string", "enum": ["ir", "capacity", "count"]},
-        "cvlMode": {"type": "string", "enum": ["max_when_balancing", "min_when_balancing", "max_always", "dvcc"]},
+        "cvlMode": {"type": "string", "enum": ["max_when_balancing", "min_when_balancing", "max_always", "max_when_floating", "dvcc"]},
         "logLevel": {"type": "string", "enum": ["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]}
     },
     "additionalProperties": False

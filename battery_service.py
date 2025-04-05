@@ -687,14 +687,18 @@ class BatteryAggregatorService(SettableService):
             if ccl is not None:
                 cclPerBattery.append(ccl*currentRatios[i][0])
 
-        self.logger.info(f"CCL estimates: {cclPerBattery}")
+        dvcc_on = self._is_dvcc()
+        if dvcc_on:
+            user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeCurrent", -1)
+        else:
+            user_limit = -1
+
+        self.logger.info(f"CCL estimates: {cclPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
         # return 0 if disabled or None if not available
         if cclPerBattery:
             ccl = min(cclPerBattery)
-            if self._is_dvcc():
-                user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeCurrent", -1)
-                if user_limit > 0:
-                    ccl = min(ccl, user_limit)
+            if user_limit > 0:
+                ccl = min(ccl, user_limit)
         elif aggr_ccl.get_result() > 0:
             # CCL is available but no connected batteries
             ccl = 0
@@ -732,6 +736,7 @@ class BatteryAggregatorService(SettableService):
 
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
+        self.logger.debug(f"Individual CVLs: {aggr_cvl.values}")
 
         if self._cvlMode == "max_always":
             op = max
@@ -757,16 +762,22 @@ class BatteryAggregatorService(SettableService):
                     if cm is not None and not "float" in cm.lower():
                         chargingCVLs.append(cvl)
 
+            self.logger.debug(f"Charging CVLs: {chargingCVLs}")
+
             if chargingCVLs:
                 cvlPerBattery = chargingCVLs
 
-            self.logger.debug(f"Battery CVL: {op.__name__} of {cvlPerBattery}")
+            dvcc_on = self._is_dvcc()
+            if dvcc_on:
+                user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
+            else:
+                user_limit = 0
+
+            self.logger.debug(f"CVL: {op.__name__} of {cvlPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
             if cvlPerBattery:
                 cvl = op(cvlPerBattery)
-                if self._is_dvcc():
-                    user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
-                    if user_limit > 0:
-                        cvl = min(cvl, user_limit)
+                if user_limit > 0:
+                    cvl = min(cvl, user_limit)
             else:
                 cvl = None
 

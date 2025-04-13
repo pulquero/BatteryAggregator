@@ -27,6 +27,7 @@ import signal
 from pydoc import locate
 
 DEFAULT_SERVICE_NAME = 'com.victronenergy.battery.aggregator'
+DEFAULT_CONFIG_FILE = "/data/setupOptions/BatteryAggregator/config.json"
 DEVICE_INSTANCE_ID = 1024
 FIRMWARE_VERSION = 0
 HARDWARE_VERSION = 0
@@ -925,13 +926,12 @@ class VirtualBatteryService(SettableService):
         return self._serviceName
 
 
-def main(virtualBatteryName=None):
+def main(*, serviceName=DEFAULT_SERVICE_NAME, configFileName=DEFAULT_CONFIG_FILE, virtualBatteryName=None):
     logSubName = f"[{virtualBatteryName}]" if virtualBatteryName is not None else ""
     logger = logging.getLogger(f"main{logSubName}")
     logger.info("Starting...")
     DBusGMainLoop(set_as_default=True)
-    setupOptions = Path("/data/setupOptions/BatteryAggregator")
-    configFile = setupOptions/"config.json"
+    configFile = Path(configFileName)
     config = {}
     try:
         with configFile.open() as f:
@@ -955,7 +955,7 @@ def main(virtualBatteryName=None):
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         processes = []
         for virtualBatteryName in virtualBatteryConfigs:
-            p = multiprocessing.Process(target=main, name=virtualBatteryName, args=(virtualBatteryName,), daemon=True)
+            p = multiprocessing.Process(target=main, name=virtualBatteryName, kwargs={"virtualBatteryName":virtualBatteryName}, daemon=True)
             processes.append(p)
             p.start()
 
@@ -971,7 +971,7 @@ def main(virtualBatteryName=None):
 
         signal.signal(signal.SIGTERM, kill_handler)
 
-        batteryAggr = BatteryAggregatorService(dbusConnection(), DEFAULT_SERVICE_NAME, config)
+        batteryAggr = BatteryAggregatorService(dbusConnection(), serviceName, config)
 
         max_attempts = config.get("startupBatteryWait", 30)
         attempts = 0
@@ -999,4 +999,7 @@ def main(virtualBatteryName=None):
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3:
+        main(serviceName=sys.argv[1], configFileName=sys.argv[2])
+    else:
+        main()

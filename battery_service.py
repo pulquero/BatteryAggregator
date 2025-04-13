@@ -926,7 +926,7 @@ class VirtualBatteryService(SettableService):
         return self._serviceName
 
 
-def main(*, serviceName=DEFAULT_SERVICE_NAME, configFileName=DEFAULT_CONFIG_FILE, virtualBatteryName=None):
+def main(*, configFileName=DEFAULT_CONFIG_FILE, virtualBatteryName=None):
     logSubName = f"[{virtualBatteryName}]" if virtualBatteryName is not None else ""
     logger = logging.getLogger(f"main{logSubName}")
     logger.info("Starting...")
@@ -941,6 +941,7 @@ def main(*, serviceName=DEFAULT_SERVICE_NAME, configFileName=DEFAULT_CONFIG_FILE
     except json.JSONDecodeError:
         logger.warning("Ignoring invalid JSON file")
 
+    serviceName = config.get("serviceName", DEFAULT_SERVICE_NAME)
     logLevel = config.get("logLevel", "INFO")
     logger.setLevel(logLevel)
     logging.getLogger("com.victronenergy.battery").setLevel(logLevel)
@@ -999,7 +1000,7 @@ def main(*, serviceName=DEFAULT_SERVICE_NAME, configFileName=DEFAULT_CONFIG_FILE
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        main(serviceName=sys.argv[1], configFileName=sys.argv[2])
+    if len(sys.argv) == 2:
+        main(configFileName=sys.argv[1])
     else:
         main()

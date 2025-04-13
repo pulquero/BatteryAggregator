@@ -5,42 +5,8 @@ from pathlib import Path
 import sys
 
 
-# Define the JSON schema for validation
-schema = {
-    "type": "object",
-    "properties": {
-        "excludedServices": {"type": "array", "items": {"type": "string"}},
-        "primaryServices": {
-            "anyOf": [
-                {"type": "array", "items": {"type": "string"}},
-                {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
-            ]
-        },
-        "auxiliaryServices": {
-            "anyOf": [
-                {"type": "array", "items": {"type": "string"}},
-                {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
-            ]
-        },
-        "capacity": {"type": "integer"},
-        "virtualBatteries": {
-            "type": "object",
-            "additionalProperties": {
-                "anyOf": [
-                    {"type": "array", "items": {"type": "string"}},
-                    {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
-                ]
-            }
-        },
-        "classes": {
-            "type": "object"
-        },
-        "currentRatioMethod": {"type": "string", "enum": ["ir", "capacity", "count"]},
-        "cvlMode": {"type": "string", "enum": ["max_when_balancing", "min_when_balancing", "max_always", "max_when_floating", "dvcc"]},
-        "logLevel": {"type": "string", "enum": ["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]}
-    },
-    "additionalProperties": False
-}
+with open("config-schema.json", "r") as fp:
+    schema = json.load(fp)
 
 
 def validate_json(json_data):

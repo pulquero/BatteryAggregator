@@ -326,9 +326,43 @@ class IRData:
         return False, False
 
 
-class BatteryAggregatorService(SettableService):
-    def __init__(self, conn, serviceName, config):
+class BatteryReconnection:
+    def __init__(self, reconnectTimeout):
         super().__init__()
+        self._batteryDisconnectActions = {}
+        self._reconnectTimeout = reconnectTimeout
+
+    def _battery_added(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery added: {dbusServiceName}")
+        action_id = self._batteryDisconnectActions.pop(dbusServiceName, None)
+        if action_id is not None:
+            GLib.source_remove(action_id)
+        else:
+            self._connect_battery(dbusServiceName, deviceInstance)
+
+    def _battery_removed(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery removed: {dbusServiceName}")
+        if self._reconnectTimeout == 0:
+            self._disconnect_battery(dbusServiceName, deviceInstance)
+        else:
+            def disconnect_action():
+                self._disconnect_battery(dbusServiceName, deviceInstance)
+                del self._batteryDisconnectActions[dbusServiceName]
+                return False
+
+            action_id = GLib.timeout_add_seconds(self._reconnectTimeout, disconnect_action)
+            self._batteryDisconnectActions[dbusServiceName] = action_id
+
+    def _connect_battery(self, dbusServiceName, deviceInstance):
+        ...
+
+    def _disconnect_battery(self, dbusServiceName, deviceInstance):
+        ...
+
+
+class BatteryAggregatorService(BatteryReconnection, SettableService):
+    def __init__(self, conn, serviceName, config, reconnectTimeout=0):
+        super().__init__(reconnectTimeout)
         if not is_battery_service_name(serviceName):
             raise ValueError(f"Invalid service name: {serviceName}")
 
@@ -548,8 +582,8 @@ class BatteryAggregatorService(SettableService):
         if self._registered:
             self._refresh_value(dbusPath)
 
-    def _battery_added(self, dbusServiceName, deviceInstance):
-        self.logger.debug(f"Battery added: {dbusServiceName}")
+    def _connect_battery(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery connected: {dbusServiceName}")
         paths_changed = None
         if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
@@ -569,9 +603,8 @@ class BatteryAggregatorService(SettableService):
         if paths_changed:
             self._refresh_values(paths_changed)
 
-
-    def _battery_removed(self, dbusServiceName, deviceInstance):
-        self.logger.debug(f"Battery removed: {dbusServiceName}")
+    def _disconnect_battery(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery disconnected: {dbusServiceName}")
         paths_changed = None
         if dbusServiceName in self._primaryServices.service_names:
             if self._registered:
@@ -817,9 +850,9 @@ class BatteryAggregatorService(SettableService):
         return self._serviceName
 
 
-class VirtualBatteryService(SettableService):
-    def __init__(self, conn, serviceName, config, hook_config):
-        super().__init__()
+class VirtualBatteryService(BatteryReconnection, SettableService):
+    def __init__(self, conn, serviceName, config, hook_config, reconnectTimeout=0):
+        super().__init__(reconnectTimeout)
         if not is_battery_service_name(serviceName):
             raise ValueError(f"Invalid service name: {serviceName}")
 
@@ -903,16 +936,16 @@ class VirtualBatteryService(SettableService):
             else:
                 self.service[dbusPath] = self._mergedServices.get_value(dbusPath)
 
-    def _battery_added(self, dbusServiceName, deviceInstance):
-        self.logger.debug(f"Battery added: {dbusServiceName}")
+    def _connect_battery(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery connected: {dbusServiceName}")
         self.battery_service_names.append(dbusServiceName)
         if self._registered:
             paths_changed = self._mergedServices.init_values(dbusServiceName, self.monitor)
             self._batteries_changed()
             self._refresh_values(paths_changed)
 
-    def _battery_removed(self, dbusServiceName, deviceInstance):
-        self.logger.debug(f"Battery removed: {dbusServiceName}")
+    def _disconnect_battery(self, dbusServiceName, deviceInstance):
+        self.logger.debug(f"Battery disconnected: {dbusServiceName}")
         self.battery_service_names.remove(dbusServiceName)
         if self._registered:
             paths_changed = self._mergedServices.clear_values(dbusServiceName)
@@ -945,11 +978,12 @@ def main(*, configFileName=DEFAULT_CONFIG_FILE, virtualBatteryName=None):
     logLevel = config.get("logLevel", "INFO")
     logger.setLevel(logLevel)
     logging.getLogger("com.victronenergy.battery").setLevel(logLevel)
+    reconnectTimeout = config.get("reconnectTimeout", 0)
 
     virtualBatteryConfigs = config.get("virtualBatteries", {})
     if virtualBatteryName:
         virtualBatteryConfig = virtualBatteryConfigs[virtualBatteryName]
-        virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig, config.get("classes"))
+        virtualBattery = VirtualBatteryService(dbusConnection(), virtualBatteryName, virtualBatteryConfig, config.get("classes"), reconnectTimeout=reconnectTimeout)
         virtualBattery.register(timeout=15)
         logger.info(f"Registered Virtual Battery {virtualBattery.service.name}")
     else:
@@ -972,7 +1006,7 @@ def main(*, configFileName=DEFAULT_CONFIG_FILE, virtualBatteryName=None):
 
         signal.signal(signal.SIGTERM, kill_handler)
 
-        batteryAggr = BatteryAggregatorService(dbusConnection(), serviceName, config)
+        batteryAggr = BatteryAggregatorService(dbusConnection(), serviceName, config, reconnectTimeout=reconnectTimeout)
 
         max_attempts = config.get("startupBatteryWait", 30)
         attempts = 0

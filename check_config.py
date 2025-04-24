@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 
-with open("config-schema.json", "r") as fp:
+with open("/data/BatteryAggregator/config-schema.json", "r") as fp:
     schema = json.load(fp)
 
 

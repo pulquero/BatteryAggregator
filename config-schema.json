@@ -15,7 +15,7 @@
                 {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
             ]
         },
-        "capacity": {"type": "integer"},
+        "capacity": {"type": "integer", "description": "Installed capacity in Ah"},
         "virtualBatteries": {
             "type": "object",
             "additionalProperties": {

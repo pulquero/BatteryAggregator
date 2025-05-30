@@ -373,6 +373,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
         self._serviceName = serviceName
         self._configuredCapacity = config.get("capacity")
 
+        self._cclMode = config.get("cclMode", "battery+dvcc")
         self._cvlMode = config.get("cvlMode", "max_when_balancing")
         self._currentRatioMethod = config.get("currentRatioMethod", "ir")
         ir_config = config.get("ir", {})
@@ -411,7 +412,8 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
                 'com.victronenergy.settings': {
                     '/Settings/SystemSetup/MaxChargeCurrent': options,
                     '/Settings/SystemSetup/MaxChargeVoltage': options
-                }
+                },
+                'com.victronenergy.vedbus': {'/Connected': options}
             },
             valueChangedCallback=self._service_value_changed,
             deviceAddedCallback=self._battery_added,
@@ -558,6 +560,8 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
                 self._updateCCL()
             elif dbusPath == "/Settings/SystemSetup/MaxChargeVoltage":
                 self._updateCVL()
+        elif dbusServiceName == "com.victronenergy.vedbus":
+                self._cclMode = "battery"
 
     def _battery_value_changed(self, dbusServiceName, dbusPath, options, changes, deviceInstance):
         value = changes['Value']
@@ -706,20 +710,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
     def _updateCCL(self):
         aggr_ccl = self.aggregators["/Info/MaxChargeCurrent"]
-        self.logger.info(f"Individual CCLs: {aggr_ccl.values}")
-
-        aggr_allow = self.aggregators["/Io/AllowToCharge"]
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
-        self.logger.info(f"Connected batteries: {connectedBatteries}")
-
-        currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
-        self.logger.info(f"Current ratios: {currentRatios}")
-
-        cclPerBattery = []
-        for i, batteryName in enumerate(connectedBatteries):
-            ccl = aggr_ccl.values.get(batteryName)
-            if ccl is not None:
-                cclPerBattery.append(ccl*currentRatios[i][0])
+        self.logger.info(f"Individual CCLs: {aggr_ccl.values}, mode: {self._cclMode}")
 
         dvcc_on = self._is_dvcc()
         if dvcc_on:
@@ -727,18 +718,40 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
         else:
             user_limit = -1
 
-        self.logger.info(f"CCL estimates: {cclPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
-        # return 0 if disabled or None if not available
-        if cclPerBattery:
-            ccl = min(cclPerBattery)
-            if user_limit > 0:
-                ccl = min(ccl, user_limit)
-        elif aggr_ccl.get_result() > 0:
-            # CCL is available but no connected batteries
-            ccl = 0
-        else:
-            # CCL is not available
+        if self._cclMode == "battery":
+            user_limit = -1
             ccl = None
+        if self._cclMode == "dvcc":
+            ccl = user_limit
+        else:
+            ccl = None
+
+        if ccl is None:
+            aggr_allow = self.aggregators["/Io/AllowToCharge"]
+            connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
+            self.logger.info(f"Connected batteries: {connectedBatteries}")
+    
+            currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
+            self.logger.info(f"Current ratios: {currentRatios}")
+    
+            cclPerBattery = []
+            for i, batteryName in enumerate(connectedBatteries):
+                ccl = aggr_ccl.values.get(batteryName)
+                if ccl is not None:
+                    cclPerBattery.append(ccl*currentRatios[i][0])
+    
+            self.logger.info(f"CCL estimates: {cclPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
+            # return 0 if disabled or None if not available
+            if cclPerBattery:
+                ccl = min(cclPerBattery)
+                if user_limit > 0:
+                    ccl = min(ccl, user_limit)
+            elif aggr_ccl.get_result() > 0:
+                # CCL is available but no connected batteries
+                ccl = 0
+            else:
+                # CCL is not available
+                ccl = None
 
         self.service["/Info/MaxChargeCurrent"] = ccl
 
@@ -770,7 +783,13 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
     def _updateCVL(self):
         aggr_cvl = self.aggregators["/Info/MaxChargeVoltage"]
-        self.logger.debug(f"Individual CVLs: {aggr_cvl.values}")
+        self.logger.debug(f"Individual CVLs: {aggr_cvl.values}, mode: {self._cvlMode}")
+
+        dvcc_on = self._is_dvcc()
+        if dvcc_on:
+            user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
+        else:
+            user_limit = 0
 
         if self._cvlMode == "max_always":
             op = max
@@ -780,7 +799,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
             op = max if self.service["/Info/ChargeMode"] == "Float" else min
         elif self._cvlMode == "dvcc":
             op = None
-            cvl = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
+            cvl = user_limit
         else:
             op = min
 
@@ -800,12 +819,6 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
             if chargingCVLs:
                 cvlPerBattery = chargingCVLs
-
-            dvcc_on = self._is_dvcc()
-            if dvcc_on:
-                user_limit = self.monitor.get_value("com.victronenergy.settings", "/Settings/SystemSetup/MaxChargeVoltage", 0)
-            else:
-                user_limit = 0
 
             self.logger.debug(f"CVL: {op.__name__} of {cvlPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
             if cvlPerBattery:

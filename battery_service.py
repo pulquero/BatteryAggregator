@@ -54,6 +54,7 @@ VOLTAGE_TEXT = lambda path,value: "{:.3f}V".format(value)
 CURRENT_TEXT = lambda path,value: "{:.3f}A".format(value)
 POWER_TEXT = lambda path,value: "{:.2f}W".format(value)
 AH_TEXT = lambda path,value: "{:.3f}Ah".format(value)
+SOC_TEXT = lambda path,value: "{:.2f}%".format(value)
 
 
 def _sum(newValue, currentValue):
@@ -82,6 +83,7 @@ CURRENT = Unit(CURRENT_TEXT)
 POWER = Unit(POWER_TEXT)
 TEMPERATURE = Unit()
 AMP_HOURS = Unit(AH_TEXT)
+SOC = Unit(SOC_TEXT)
 NO_UNIT = Unit()
 
 
@@ -221,7 +223,7 @@ AGGREGATED_BATTERY_PATHS = {
     '/Dc/0/Voltage': PathDefinition(VOLTAGE, Mean0Aggregator),
     '/Dc/0/Power':  PathDefinition(POWER, SumAggregator),
     '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MaxAggregator),
-    '/Soc':  PathDefinition(NO_UNIT, Mean0Aggregator),
+    '/Soc':  PathDefinition(SOC, Mean0Aggregator),
     '/TimeToGo':  PathDefinition(NO_UNIT, Mean0Aggregator),
     '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator),
     '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator),

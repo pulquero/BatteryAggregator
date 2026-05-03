@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import operator
 import os
 import sys
 from script_utils import SCRIPT_HOME, VERSION
@@ -11,7 +12,7 @@ import logging
 from vedbus import VeDbusService
 from ve_utils import unwrap_dbus_value
 from dbus_utils import dbusConnection
-from dbusmonitor import DbusMonitor
+from dbusmonitor import DbusMonitor, VE_INTERFACE
 from settableservice import SettableService
 from data_merger import DataMerger
 from service_name_resolver import ServiceNameResolver
@@ -218,6 +219,31 @@ class ActivePathDefinition(PathDefinition):
         self.action = action
 
 
+class IdActivePathDefinition(ActivePathDefinition):
+    def __init__(self, idPath, valuePath, is_better):
+        super().__init__(NO_UNIT, triggerPaths={idPath}, action=self.update_id)
+        self.idPath = idPath
+        self.valuePath = valuePath
+        self.is_better = is_better
+
+    def update_id(self, api):
+        aggr_id = api.aggregators[self.idPath]
+        aggr_value = api.aggregators[self.valuePath]
+        best_value = None
+        best_serviceName = None
+        for serviceName, v in aggr_value.values.items():
+            if v is not None:
+                if best_value is None or self.is_better(v, best_value):
+                    best_value = v
+                    best_serviceName = serviceName
+        if best_serviceName is not None:
+            best_id = aggr_id.values[best_serviceName]
+            name = api._conn.call_blocking(best_serviceName, "/CustomName", VE_INTERFACE, "GetValue", "", [])
+            if not name:
+                name = best_serviceName[len("com.victronenergy.battery."):]
+            api.service[self.idPath] = f"{name} {best_id}"
+
+
 AGGREGATED_BATTERY_PATHS = {
     '/Dc/0/Current': PathDefinition(CURRENT, SumAggregator),
     '/Dc/0/Voltage': PathDefinition(VOLTAGE, Mean0Aggregator),
@@ -235,13 +261,9 @@ AGGREGATED_BATTERY_PATHS = {
     '/Io/AllowToDischarge': PathDefinition(NO_UNIT, BooleanAggregator),
     '/Io/AllowToBalance': PathDefinition(NO_UNIT, BooleanAggregator),
     '/System/MinCellTemperature': PathDefinition(TEMPERATURE, MinAggregator),
-    '/System/MinTemperatureCellId': PathDefinition(NO_UNIT, MinAggregator),
-    '/System/MinCellVoltage': PathDefinition(VOLTAGE, MinAggregator),
-    '/System/MinVoltageCellId': PathDefinition(NO_UNIT, MinAggregator),
     '/System/MaxCellTemperature': PathDefinition(TEMPERATURE, MaxAggregator),
-    '/System/MaxTemperatureCellId': PathDefinition(NO_UNIT, MaxAggregator),
+    '/System/MinCellVoltage': PathDefinition(VOLTAGE, MinAggregator),
     '/System/MaxCellVoltage': PathDefinition(VOLTAGE, MaxAggregator),
-    '/System/MaxVoltageCellId': PathDefinition(NO_UNIT, MaxAggregator),
     '/System/NrOfModulesBlockingCharge': PathDefinition(NO_UNIT, SumAggregator),
     '/System/NrOfModulesBlockingDischarge': PathDefinition(NO_UNIT, SumAggregator),
     '/System/NrOfModulesOnline': PathDefinition(NO_UNIT, SumAggregator),
@@ -260,6 +282,10 @@ AGGREGATED_BATTERY_PATHS = {
 }
 
 ACTIVE_BATTERY_PATHS = {
+    '/System/MinTemperatureCellId': IdActivePathDefinition('/System/MinTemperatureCellId', '/System/MinCellTemperature', operator.lt),
+    '/System/MaxTemperatureCellId': IdActivePathDefinition('/System/MaxTemperatureCellId', '/System/MaxCellTemperature', operator.gt),
+    '/System/MinVoltageCellId': IdActivePathDefinition('/System/MinVoltageCellId', '/System/MinCellVoltage', operator.lt),
+    '/System/MaxVoltageCellId': IdActivePathDefinition('/System/MaxVoltageCellId', '/System/MaxCellVoltage', operator.gt),
     '/Info/MaxChargeCurrent': ActivePathDefinition(CURRENT, triggerPaths={'/Info/MaxChargeCurrent', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
     '/Info/MaxChargeVoltage': ActivePathDefinition(VOLTAGE, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
     '/Info/MaxDischargeCurrent': ActivePathDefinition(CURRENT, triggerPaths={'/Info/MaxDischargeCurrent', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),

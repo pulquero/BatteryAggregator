@@ -37,7 +37,8 @@ class ServiceNameResolver:
             custom_name = ServiceNameResolver.get_name(name)
             service_name = self._get_service_names().get(custom_name)
             if not service_name:
-                raise ValueError(f"Unknown name: {custom_name}")
+                return None
+
             return service_name
         else:
             return name

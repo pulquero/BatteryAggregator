@@ -427,7 +427,9 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
         excludedServices = [serviceName]
         for service_name in config.get("excludedServices", []):
-            excludedServices.append(serviceNameResolver.resolve_service_name(service_name))
+            resolved_name = serviceNameResolver.resolve_service_name(service_name)
+            if resolved_name:
+                excludedServices.append(resolved_name)
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
             excludedServices.extend(virtualBatteryConfig)

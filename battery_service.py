@@ -249,7 +249,6 @@ AGGREGATED_BATTERY_PATHS = {
     '/Dc/0/Voltage': PathDefinition(VOLTAGE, Mean0Aggregator),
     '/Dc/0/Power':  PathDefinition(POWER, SumAggregator),
     '/Dc/0/Temperature':  PathDefinition(TEMPERATURE, MaxAggregator),
-    '/Soc':  PathDefinition(SOC, Mean0Aggregator),
     '/TimeToGo':  PathDefinition(NO_UNIT, Mean0Aggregator),
     '/Capacity' : PathDefinition(AMP_HOURS, SumAggregator),
     '/InstalledCapacity' : PathDefinition(AMP_HOURS, SumAggregator),
@@ -289,6 +288,7 @@ ACTIVE_BATTERY_PATHS = {
     '/Info/MaxChargeCurrent': ActivePathDefinition(CURRENT, triggerPaths={'/Info/MaxChargeCurrent', '/Io/AllowToCharge'}, action=lambda api: api._updateCCL()),
     '/Info/MaxChargeVoltage': ActivePathDefinition(VOLTAGE, triggerPaths={'/Info/MaxChargeVoltage', '/Balancing'}, action=lambda api: api._updateCVL()),
     '/Info/MaxDischargeCurrent': ActivePathDefinition(CURRENT, triggerPaths={'/Info/MaxDischargeCurrent', '/Io/AllowToDischarge'}, action=lambda api: api._updateDCL()),
+    '/Soc':  ActivePathDefinition(SOC, triggerPaths={'/Soc', '/Io/AllowToDischarge'}, action=lambda api: api._updateSoc()),
 }
 
 BATTERY_PATHS = {**AGGREGATED_BATTERY_PATHS, **ACTIVE_BATTERY_PATHS}
@@ -683,7 +683,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
         return 1.0/sum_ir_recip if sum_ir_recip else None
 
-    def _get_current_ratios(self, connectedBatteries, allowSupported):
+    def _get_current_ratios(self, connectedBatteries, allowIsSupported):
         if self._currentRatioMethod == "ir":
             total_ir = self._get_total_ir(connectedBatteries)
 
@@ -691,7 +691,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
             aggr_cap = self.aggregators.get("/InstalledCapacity")
             # active total installed capacity
             # if allow is supported then assume batteries have /InstalledCapacity
-            if allowSupported is not None:
+            if allowIsSupported is not None:
                 total_cap = 0
                 for batteryName in connectedBatteries:
                     cap = aggr_cap.values.get(batteryName) if aggr_cap else None
@@ -757,19 +757,17 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
             ccl = None
 
         if ccl is None:
-            aggr_allow = self.aggregators["/Io/AllowToCharge"]
-            connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
-            self.logger.info(f"Connected batteries: {connectedBatteries}")
-    
-            currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
+            connectedBatteries, allowIsSupported = self._get_chargeable_batteries()
+            self.logger.info(f"Chargeable batteries: {connectedBatteries}")
+            currentRatios = self._get_current_ratios(connectedBatteries, allowIsSupported)
             self.logger.info(f"Current ratios: {currentRatios}")
-    
+
             cclPerBattery = []
             for i, batteryName in enumerate(connectedBatteries):
                 ccl = aggr_ccl.values.get(batteryName)
                 if ccl is not None:
                     cclPerBattery.append(ccl*currentRatios[i][0])
-    
+
             self.logger.info(f"CCL estimates: {cclPerBattery}, DVCC: {dvcc_on}, user limit: {user_limit}")
             # return 0 if disabled or None if not available
             if cclPerBattery:
@@ -785,15 +783,18 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
         self.service["/Info/MaxChargeCurrent"] = ccl
 
+    def _get_chargeable_batteries(self):
+        aggr_allow = self.aggregators["/Io/AllowToCharge"]
+        chargeableBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
+        return chargeableBatteries, aggr_allow.get_result()
+
     def _updateDCL(self):
         aggr_dcl = self.aggregators["/Info/MaxDischargeCurrent"]
         self.logger.info(f"Individual DCLs: {aggr_dcl.values}")
 
-        aggr_allow = self.aggregators["/Io/AllowToDischarge"]
-        connectedBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
-        self.logger.info(f"Connected batteries: {connectedBatteries}")
-
-        currentRatios = self._get_current_ratios(connectedBatteries, aggr_allow.get_result())
+        connectedBatteries, allowIsSupported = self._get_dischargeable_batteries()
+        self.logger.info(f"Dischargeable batteries: {connectedBatteries}")
+        currentRatios = self._get_current_ratios(connectedBatteries, allowIsSupported)
         self.logger.info(f"Current ratios: {currentRatios}")
 
         dclPerBattery = []
@@ -806,6 +807,21 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
         # return 0 if disabled or None if not available
         available = aggr_dcl.get_result() > 0
         self.service["/Info/MaxDischargeCurrent"] = min(dclPerBattery) if dclPerBattery else 0 if available else None
+
+    def _get_dischargeable_batteries(self):
+        aggr_allow = self.aggregators["/Io/AllowToDischarge"]
+        dischargeableBatteries = [batteryName for batteryName, allow in aggr_allow.values.items() if allow != 0]
+        return dischargeableBatteries, aggr_allow.get_result()
+
+    def _updateSoc(self):
+        connectedBatteries, allowIsSupported = self._get_dischargeable_batteries()
+        if not allowIsSupported:
+            connectedBatteries = self.battery_service_names
+        socs = self.aggregators["/Soc"]
+        aggr = Mean0Aggregator()
+        for batteryName in connectedBatteries:
+            aggr.set(batteryName, socs.values.get(batteryName))
+        self.service["/Soc"] = aggr.get_result()
 
     def _updateCLs(self):
         self._updateCCL()

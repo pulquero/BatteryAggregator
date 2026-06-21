@@ -15,7 +15,7 @@ from dbus_utils import dbusConnection
 from dbusmonitor import DbusMonitor, VE_INTERFACE
 from settableservice import SettableService
 from data_merger import DataMerger
-from service_name_resolver import ServiceNameResolver
+from service_name_resolver import ServiceNameResolver, ServiceNameManager
 from hooks import Hook
 from collections import deque, namedtuple
 import math
@@ -425,14 +425,14 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
         otherServiceNames.update(self._primaryServices.service_names)
         otherServiceNames.update(self._auxiliaryServices.service_names)
 
-        excludedServices = [serviceName]
-        for service_name in config.get("excludedServices", []):
-            resolved_name = serviceNameResolver.resolve_service_name(service_name)
-            if resolved_name:
-                excludedServices.append(resolved_name)
+        self._excluded_services = ServiceNameManager(serviceNameResolver)
+        self._excluded_services.add_name(serviceName)
+        for name in config.get("excludedServices", []):
+            self._excluded_services.add_name(name)
         virtualBatteryConfigs = config.get("virtualBatteries", {})
         for virtualBatteryConfig in virtualBatteryConfigs.values():
-            excludedServices.extend(virtualBatteryConfig)
+            for name in virtualBatteryConfig:
+                self._excluded_services.add_name(name)
 
         options = None  # currently not used afaik
         self.monitor = DbusMonitor(
@@ -448,7 +448,7 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
             valueChangedCallback=self._service_value_changed,
             deviceAddedCallback=self._battery_added,
             deviceRemovedCallback=self._battery_removed,
-            ignoreServices=excludedServices
+            ignoreServices=self._excluded_services.get_service_names()
         )
 
         self.battery_service_names = [service_name for service_name in self.monitor.servicesByName if is_battery_service_name(service_name) and service_name not in otherServiceNames]
@@ -618,6 +618,18 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
 
     def _connect_battery(self, dbusServiceName, deviceInstance):
         self.logger.debug(f"Battery connected: {dbusServiceName}")
+
+        self._excluded_services.update()
+        self.monitor.ignoreServices = self._excluded_services.get_service_names()
+        # remove anything that inadvertently got added
+        for ignored_name in self.monitor.ignoreServices:
+            service = self.monitor.servicesByName.pop(ignored_name, None)
+            if service:
+                del self.monitor.servicesById[service.id]
+                self.monitor.servicesByClass[service.service_class].remove(service)
+                for watch in self.monitor.serviceWatches.pop(ignored_name, []):
+                    watch.remove()
+
         paths_changed = None
         if dbusServiceName in self._primaryServices.service_names:
             if self._registered:

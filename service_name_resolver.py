@@ -42,3 +42,30 @@ class ServiceNameResolver:
             return service_name
         else:
             return name
+
+    def refresh(self):
+        self._custom_names = None
+
+
+class ServiceNameManager:
+    def __init__(self, service_name_resolver):
+        self._service_name_resolver = service_name_resolver
+        self._service_names = []
+        self._unresolved = []
+
+    def add_name(self, name):
+        self._unresolved.append(name)
+
+    def update(self):
+        self._service_name_resolver.refresh()
+        current_unresolved = []
+        for name in self._unresolved:
+            service_name = self._service_name_resolver.resolve_service_name(name)
+            if service_name:
+                self._service_names.append(service_name)
+            else:
+                current_unresolved.append(name)
+        self._unresolved = current_unresolved
+
+    def get_service_names(self):
+        return self._service_names

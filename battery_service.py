@@ -630,6 +630,9 @@ class BatteryAggregatorService(BatteryReconnection, SettableService):
                 for watch in self.monitor.serviceWatches.pop(ignored_name, []):
                     watch.remove()
 
+        if dbusServiceName in self._excluded_services.get_service_names():
+            return
+
         paths_changed = None
         if dbusServiceName in self._primaryServices.service_names:
             if self._registered:

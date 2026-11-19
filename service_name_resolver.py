@@ -54,7 +54,10 @@ class ServiceNameManager:
         self._unresolved = []
 
     def add_name(self, name):
-        self._unresolved.append(name)
+        if ServiceNameResolver.is_name(name):
+            self._unresolved.append(name)
+        else:
+            self._service_names.append(name)
 
     def update(self):
         self._service_name_resolver.refresh()
